@@ -116,14 +116,11 @@ async function handleRecallMemory(
     });
   }
 
-  // Update recall stats
+  // Update last_recalled_at for found memories
   const memoryIds = memories.map(m => m.id);
   await supabase
     .from('kira_memory')
-    .update({ 
-      last_recalled_at: new Date().toISOString(),
-      recall_count: supabase.rpc('increment_recall_count'), // Would need a DB function
-    })
+    .update({ last_recalled_at: new Date().toISOString() })
     .in('id', memoryIds);
 
   // Format response
@@ -187,7 +184,7 @@ async function handleSaveMemory(
       memory_type,
       content,
       importance: importance || 5,
-      tags: [], // Could extract tags from content
+      tags: [],
     })
     .select()
     .single();

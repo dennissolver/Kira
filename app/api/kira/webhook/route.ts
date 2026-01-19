@@ -64,21 +64,13 @@ export async function POST(request: NextRequest) {
 
       case 'conversation.ended':
         // Update conversation with final data
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           status: 'completed',
           ended_at: new Date().toISOString(),
         };
 
         if (data?.duration_seconds) {
           updateData.duration_seconds = data.duration_seconds;
-
-          // Update agent's total minutes
-          await supabase
-            .from('kira_agents')
-            .update({
-              total_minutes: agent.id, // This should use a DB function to increment
-            })
-            .eq('id', agent.id);
         }
 
         if (data?.transcript_text) {
