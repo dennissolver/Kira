@@ -261,10 +261,7 @@ async function createElevenLabsAgent(params: CreateAgentParams) {
             model_id: 'eleven_turbo_v2_5',
             voice_id: KIRA_VOICE_ID,
           },
-          asr: {
-            provider: 'elevenlabs',
-            quality: 'high',
-          },
+
         },
         platform_settings: {
           webhook: {

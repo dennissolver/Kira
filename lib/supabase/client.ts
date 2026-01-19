@@ -169,55 +169,6 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
   return toolIds;
 }
 
-// =============================================================================
-// AGENT CREATION
-// =============================================================================
-
-export async function createKiraAgent(params: CreateAgentParams): Promise<ConversationAgent> {
-  const agentConfig: Record<string, unknown> = {
-    name: params.name,
-    conversation_config: {
-      agent: {
-        prompt: {
-          prompt: params.systemPrompt,
-          ...(params.toolIds?.length ? { tool_ids: params.toolIds } : {}),
-        },
-        first_message: params.firstMessage,
-        language: 'en',
-      },
-      tts: {
-        model_id: 'eleven_turbo_v2_5',
-        voice_id: KIRA_VOICE_ID,
-      },
-      asr: {
-        provider: 'elevenlabs',
-        quality: 'high',
-      },
-      turn: {
-        mode: 'turn',
-        turn_timeout: 15, // Give users time to think
-      },
-      conversation: {
-        max_duration_seconds: 3600, // 1 hour max
-      },
-    },
-  };
-
-  // Add webhook if provided
-  if (params.webhookUrl) {
-    agentConfig.platform_settings = {
-      webhook: {
-        url: `${params.webhookUrl}/api/kira/webhook`,
-        secret: process.env.ELEVENLABS_WEBHOOK_SECRET || 'kira-webhook-secret',
-      },
-    };
-  }
-
-  return apiRequest<ConversationAgent>('/convai/agents/create', {
-    method: 'POST',
-    body: JSON.stringify(agentConfig),
-  });
-}
 
 // =============================================================================
 // AGENT MANAGEMENT
