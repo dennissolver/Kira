@@ -76,7 +76,6 @@ function buildToolConfig(
     webhook: {
       url: webhookUrl,
       method: 'POST',
-      // New API format uses 'api_schema' not 'request_body_schema'
       api_schema: {
         type: 'object',
         description: `Parameters for ${name}`,
@@ -96,9 +95,11 @@ function buildToolConfig(
 }
 
 export async function createKiraTools(webhookUrl: string): Promise<string[]> {
-  const toolsUrl = `${webhookUrl}/api/kira/tools`;
+  // Use the elevenlabs-router endpoint for all tools
+  const toolsUrl = `${webhookUrl}/api/webhooks/elevenlabs-router`;
 
   const toolConfigs = [
+    // Memory tools
     buildToolConfig(
       'recall_memory',
       "Search Kira's memory for past context about this user - preferences, goals, decisions, and things they've shared",
@@ -118,6 +119,59 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
         { name: 'content', type: 'string', description: 'The information to remember', required: true },
         { name: 'memory_type', type: 'string', description: 'Type: preference, context, goal, decision, followup, correction, or insight', required: true },
         { name: 'importance', type: 'number', description: 'Importance 1-10, higher = more important', required: false },
+      ]
+    ),
+
+    // Conversation tools
+    buildToolConfig(
+      'save_message',
+      'Save a message from the conversation to the database for history tracking',
+      toolsUrl,
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "save_message")', required: true },
+        { name: 'role', type: 'string', description: 'Who said it: "user" or "assistant"', required: true },
+        { name: 'content', type: 'string', description: 'The message content', required: true },
+      ]
+    ),
+    buildToolConfig(
+      'update_topic',
+      'Update the current conversation topic for context tracking',
+      toolsUrl,
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "update_topic")', required: true },
+        { name: 'topic', type: 'string', description: 'Brief description of current topic', required: true },
+      ]
+    ),
+
+    // Research tools
+    buildToolConfig(
+      'search_web',
+      'Search the web for current information, news, or research',
+      toolsUrl,
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "search_web")', required: true },
+        { name: 'query', type: 'string', description: 'Search query', required: true },
+        { name: 'num_results', type: 'number', description: 'Number of results (default 5)', required: false },
+      ]
+    ),
+    buildToolConfig(
+      'search_knowledge',
+      "Search the user's uploaded knowledge base for relevant information",
+      toolsUrl,
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "search_knowledge")', required: true },
+        { name: 'query', type: 'string', description: 'What to search for', required: true },
+      ]
+    ),
+    buildToolConfig(
+      'save_finding',
+      'Save a useful research finding to the knowledge base',
+      toolsUrl,
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "save_finding")', required: true },
+        { name: 'title', type: 'string', description: 'Brief title for the finding', required: true },
+        { name: 'content', type: 'string', description: 'The finding content', required: true },
+        { name: 'source_url', type: 'string', description: 'Source URL if applicable', required: false },
       ]
     ),
   ];
@@ -168,11 +222,9 @@ export async function createKiraAgent(params: CreateAgentParams): Promise<Conver
         language: 'en',
       },
       tts: {
-        model_id: 'eleven_flash_v2',  // Changed to flash_v2 which is explicitly supported
+        model_id: 'eleven_flash_v2',
         voice_id: KIRA_VOICE_ID,
       },
-      // FIX: Don't include ASR config at all - let ElevenLabs use defaults
-      // The error happens when we include partial ASR config
       turn: {
         mode: 'turn',
         turn_timeout: 15,
@@ -183,11 +235,11 @@ export async function createKiraAgent(params: CreateAgentParams): Promise<Conver
     },
   };
 
-  // Add webhook if provided
+  // Add webhook for conversation events - use the router endpoint
   if (params.webhookUrl) {
     agentConfig.platform_settings = {
       webhook: {
-        url: `${params.webhookUrl}/api/kira/webhook`,
+        url: `${params.webhookUrl}/api/webhooks/elevenlabs-router`,
         secret: process.env.ELEVENLABS_WEBHOOK_SECRET || 'kira-webhook-secret',
       },
     };
