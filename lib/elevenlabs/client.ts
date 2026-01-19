@@ -1,15 +1,24 @@
 // lib/elevenlabs/client.ts
 // ElevenLabs Conversational AI client for Kira
+// FIXED: LLM model must be "gemini-2.0-flash-001" (not "gemini-2.5-flash")
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
 const BASE_URL = 'https://api.elevenlabs.io/v1';
-
-// Kira's voice - warm, friendly female voice
-const KIRA_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah - warm and friendly
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
+const KIRA_VOICE_ID = process.env.KIRA_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL'; // Sarah voice
 
 // =============================================================================
 // TYPES
 // =============================================================================
+
+interface Tool {
+  id: string;
+  name: string;
+}
+
+interface ConversationAgent {
+  agent_id: string;
+  name: string;
+}
 
 interface CreateAgentParams {
   name: string;
@@ -19,25 +28,17 @@ interface CreateAgentParams {
   webhookUrl?: string;
 }
 
-interface ConversationAgent {
-  agent_id: string;
-  name: string;
-}
-
-interface Tool {
-  id: string;
-  name: string;
-}
-
 // =============================================================================
-// API HELPERS
+// API HELPER
 // =============================================================================
 
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
+  const url = `${BASE_URL}${endpoint}`;
+
+  const res = await fetch(url, {
     ...options,
     headers: {
       'xi-api-key': ELEVENLABS_API_KEY,
@@ -47,15 +48,15 @@ async function apiRequest<T>(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`ElevenLabs API error (${res.status}): ${text}`);
+    const errText = await res.text();
+    throw new Error(`ElevenLabs API error (${res.status}): ${errText}`);
   }
 
   return res.json();
 }
 
 // =============================================================================
-// TOOL CREATION
+// TOOL CREATION - UPDATED FORMAT WITH api_schema
 // =============================================================================
 
 function buildToolConfig(
@@ -64,27 +65,52 @@ function buildToolConfig(
   webhookUrl: string,
   properties: Record<string, any>
 ) {
+  // Build the request body schema
+  const requestBodySchema = {
+    type: 'object',
+    properties: {
+      tool_name: {
+        type: 'string',
+        description: 'Tool identifier',
+      },
+      ...Object.fromEntries(
+        Object.entries(properties).map(([key, value]) => [
+          key,
+          {
+            type: value.type,
+            description: value.description,
+          },
+        ])
+      ),
+    },
+    required: ['tool_name', ...Object.keys(properties).filter(k => properties[k].required)],
+  };
+
   return {
     type: 'webhook',
     name,
     description,
-    params: {
-      method: 'POST',
+    webhook: {
       url: webhookUrl,
-      request_body_schema: {
-        type: 'object',
-        description: `Parameters for ${name}`,
-        properties: {
-          tool_name: {
-            type: 'string',
-            description: 'Tool identifier',
-            value_type: 'constant',
-            constant: name,
-            required: true,
-          },
-          ...properties,
+      method: 'POST',
+      api_schema: {
+        request_body: requestBodySchema,
+      },
+      request_body_content_type: 'application/json',
+      request_body: {
+        tool_name: {
+          type: 'constant',
+          value: name,
         },
-        required: ['tool_name', ...Object.keys(properties).filter(k => properties[k].required)],
+        ...Object.fromEntries(
+          Object.entries(properties).map(([key, value]) => [
+            key,
+            {
+              type: 'prompt_generated',
+              description: value.description,
+            },
+          ])
+        ),
       },
     },
   };
@@ -92,7 +118,7 @@ function buildToolConfig(
 
 export async function createKiraTools(webhookUrl: string): Promise<string[]> {
   const toolsUrl = `${webhookUrl}/api/kira/tools`;
-  
+
   const toolConfigs = [
     buildToolConfig(
       'recall_memory',
@@ -102,13 +128,11 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
         query: {
           type: 'string',
           description: 'What to search for in memory',
-          value_type: 'llm_prompt',
           required: true,
         },
         memory_type: {
           type: 'string',
           description: 'Type: preference, context, goal, decision, followup, or all',
-          value_type: 'llm_prompt',
           required: false,
         },
       }
@@ -121,19 +145,16 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
         content: {
           type: 'string',
           description: 'The information to remember',
-          value_type: 'llm_prompt',
           required: true,
         },
         memory_type: {
           type: 'string',
           description: 'Type: preference, context, goal, decision, followup, correction, or insight',
-          value_type: 'llm_prompt',
           required: true,
         },
         importance: {
           type: 'number',
           description: 'Importance 1-10, higher = more important',
-          value_type: 'llm_prompt',
           required: false,
         },
       }
@@ -170,16 +191,24 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
 }
 
 // =============================================================================
-// AGENT CREATION
+// AGENT CREATION - FIXED LLM MODEL
 // =============================================================================
 
 export async function createKiraAgent(params: CreateAgentParams): Promise<ConversationAgent> {
-  const agentConfig: any = {
+  const agentConfig: Record<string, unknown> = {
     name: params.name,
     conversation_config: {
       agent: {
         prompt: {
           prompt: params.systemPrompt,
+          // FIXED: Valid LLM models for English agents:
+          // - "gpt-4o-mini"
+          // - "gpt-4o"
+          // - "claude-3-5-sonnet"
+          // - "gemini-2.0-flash-001"
+          llm: 'gemini-2.0-flash-001',
+          temperature: 0.7,
+          max_tokens: -1,
           ...(params.toolIds?.length ? { tool_ids: params.toolIds } : {}),
         },
         first_message: params.firstMessage,
@@ -188,17 +217,22 @@ export async function createKiraAgent(params: CreateAgentParams): Promise<Conver
       tts: {
         model_id: 'eleven_turbo_v2_5',
         voice_id: KIRA_VOICE_ID,
+        stability: 0.5,
+        similarity_boost: 0.8,
+        speed: 1.0,
       },
       asr: {
         provider: 'elevenlabs',
         quality: 'high',
+        user_input_audio_format: 'pcm_16000',
       },
       turn: {
         mode: 'turn',
-        turn_timeout: 15, // Give users time to think
+        turn_timeout: 15,
       },
       conversation: {
-        max_duration_seconds: 3600, // 1 hour max
+        max_duration_seconds: 3600,
+        client_events: ['audio', 'interruption', 'agent_response', 'user_transcript'],
       },
     },
   };
@@ -273,6 +307,6 @@ export async function getSignedUrl(agentId: string): Promise<string> {
   return response.signed_url;
 }
 
-export async function getConversation(conversationId: string): Promise<any> {
+export async function getConversation(conversationId: string): Promise<unknown> {
   return apiRequest(`/convai/conversations/${conversationId}`);
 }
