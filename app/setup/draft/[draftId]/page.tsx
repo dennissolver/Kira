@@ -1,20 +1,21 @@
 // app/setup/draft/[draftId]/page.tsx
-// Draft Review Page - User reviews and edits framework before creating Operational Kira
+// Draft Review Page - User reviews framework before creating Operational Kira
 //
 // FLOW:
 // 1. User arrives from /start after Setup Kira saved draft
 // 2. Shows editable framework
 // 3. User can modify any field
-// 4. User clicks "Create My Kira"
-// 5. Operational Kira is created with approved framework
-// 6. Redirect to /chat/[agentId]
+// 4. User MUST enter email (required field)
+// 5. User clicks "Create My Kira"
+// 6. Operational Kira is created with approved framework
+// 7. Redirect to /chat/[agentId]
 
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
-import { Loader2, Sparkles, MapPin, Target, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, Sparkles, MapPin, Target, CheckCircle, AlertCircle, Mail, Plus, X } from 'lucide-react';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,6 +47,8 @@ export default function DraftReviewPage() {
 
   // Editable fields
   const [userName, setUserName] = useState('');
+  const [email, setEmail] = useState(''); // NEW: Email field (required)
+  const [emailError, setEmailError] = useState<string | null>(null); // NEW: Email validation error
   const [location, setLocation] = useState('');
   const [journeyType, setJourneyType] = useState<'personal' | 'business'>('personal');
   const [primaryObjective, setPrimaryObjective] = useState('');
@@ -89,6 +92,35 @@ export default function DraftReviewPage() {
     }
   }, [draftId]);
 
+  // Email validation
+  const validateEmail = (emailValue: string): boolean => {
+    if (!emailValue) {
+      setEmailError('Email is required');
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailValue)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    setEmailError(null);
+    return true;
+  };
+
+  // Handle email change
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setEmail(value);
+    if (emailError) {
+      validateEmail(value);
+    }
+  };
+
+  // Handle email blur (validate on focus out)
+  const handleEmailBlur = () => {
+    validateEmail(email);
+  };
+
   // Handle context point changes
   const updateContextPoint = (index: number, value: string) => {
     const updated = [...keyContext];
@@ -121,7 +153,15 @@ export default function DraftReviewPage() {
 
   // Submit and create Operational Kira
   const handleSubmit = async () => {
+    // Validate email first
+    if (!validateEmail(email)) {
+      // Scroll to email field
+      document.getElementById('email-field')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+
     setIsSubmitting(true);
+    setError(null);
 
     try {
       // Update draft with any user edits and mark as approved
@@ -147,22 +187,13 @@ export default function DraftReviewPage() {
 
       if (updateError) throw updateError;
 
-      // Create Operational Kira
+      // Create Operational Kira - FIXED: send draftId AND email
       const response = await fetch('/api/kira/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           draftId,
-          framework: {
-            userName,
-            firstName: userName.split(' ')[0],
-            location,
-            journeyType,
-            primaryObjective,
-            keyContext: keyContext.filter(c => c.trim()),
-            successDefinition: successDefinition || undefined,
-            constraints: constraints.filter(c => c.trim()),
-          },
+          email,
         }),
       });
 
@@ -191,8 +222,8 @@ export default function DraftReviewPage() {
     );
   }
 
-  // Error state
-  if (error || !draft) {
+  // Error state (draft not found)
+  if (!draft) {
     return (
       <div className="min-h-screen bg-stone-950 flex items-center justify-center p-6">
         <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 max-w-md text-center">
@@ -227,135 +258,177 @@ export default function DraftReviewPage() {
               <img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full object-cover" />
             </div>
             <div className="text-left">
-              <h1 className="text-xl font-bold text-white">Review Your Framework</h1>
-              <p className="text-stone-400 text-sm">Edit anything, then create your Kira</p>
+              <h1 className="text-2xl font-bold text-stone-100">Review Your Framework</h1>
+              <p className="text-stone-400 text-sm">Make any changes, then create your Kira</p>
             </div>
           </div>
         </div>
 
-        {/* Framework Form */}
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <p className="text-red-400">{error}</p>
+          </div>
+        )}
+
+        {/* Form */}
         <div className="space-y-6">
-          {/* Name & Location */}
-          <div className="bg-stone-900/50 border border-stone-800 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+
+          {/* Email Field - REQUIRED AND PROMINENT */}
+          <div id="email-field" className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-2xl p-6">
+            <label className="flex items-center gap-2 text-amber-400 mb-3">
+              <Mail className="w-5 h-5" />
+              <span className="font-medium">Your Email</span>
+              <span className="text-red-400 text-sm">*required</span>
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={handleEmailChange}
+              onBlur={handleEmailBlur}
+              className={`w-full px-4 py-3 rounded-xl bg-stone-800/50 border text-stone-100 placeholder-stone-500 focus:outline-none transition-colors ${
+                emailError 
+                  ? 'border-red-500/50 focus:border-red-500' 
+                  : 'border-stone-600/30 focus:border-amber-400/50'
+              }`}
+              placeholder="you@example.com"
+              required
+            />
+            {emailError ? (
+              <p className="text-red-400 text-sm mt-2 flex items-center gap-1">
+                <AlertCircle className="w-4 h-4" />
+                {emailError}
+              </p>
+            ) : (
+              <p className="text-stone-500 text-sm mt-2">
+                We'll send you a link to access your Kira anytime
+              </p>
+            )}
+          </div>
+
+          {/* Name */}
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="flex items-center gap-2 text-stone-400 mb-3">
               <Sparkles className="w-5 h-5 text-amber-400" />
-              About You
-            </h2>
+              <span className="font-medium">Your Name</span>
+            </label>
+            <input
+              type="text"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-100 placeholder-stone-500 focus:border-amber-400/50 focus:outline-none"
+              placeholder="Your name"
+            />
+          </div>
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-stone-400 text-sm mb-2">Full Name</label>
-                <input
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  className="w-full bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50"
-                />
-              </div>
-              <div>
-                <label className="block text-stone-400 text-sm mb-2 flex items-center gap-1">
-                  <MapPin className="w-4 h-4" /> Location
-                </label>
-                <input
-                  type="text"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  className="w-full bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50"
-                />
-              </div>
-            </div>
+          {/* Location */}
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="flex items-center gap-2 text-stone-400 mb-3">
+              <MapPin className="w-5 h-5 text-amber-400" />
+              <span className="font-medium">Location</span>
+            </label>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-100 placeholder-stone-500 focus:border-amber-400/50 focus:outline-none"
+              placeholder="City, Country"
+            />
+          </div>
 
-            <div className="mt-4">
-              <label className="block text-stone-400 text-sm mb-2">Journey Type</label>
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setJourneyType('personal')}
-                  className={`flex-1 py-3 rounded-xl border transition-all ${
-                    journeyType === 'personal'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
-                      : 'bg-stone-800/50 border-stone-700 text-stone-400 hover:border-stone-600'
-                  }`}
-                >
-                  🏠 Personal
-                </button>
-                <button
-                  onClick={() => setJourneyType('business')}
-                  className={`flex-1 py-3 rounded-xl border transition-all ${
-                    journeyType === 'business'
-                      ? 'bg-amber-500/20 border-amber-500/50 text-amber-200'
-                      : 'bg-stone-800/50 border-stone-700 text-stone-400 hover:border-stone-600'
-                  }`}
-                >
-                  💼 Business
-                </button>
-              </div>
+          {/* Journey Type */}
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="text-stone-400 font-medium mb-3 block">Journey Type</label>
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => setJourneyType('personal')}
+                className={`flex-1 py-3 px-4 rounded-xl border transition-all ${
+                  journeyType === 'personal'
+                    ? 'bg-amber-400/20 border-amber-400/50 text-amber-400'
+                    : 'bg-stone-800/50 border-stone-600/30 text-stone-400 hover:border-stone-500'
+                }`}
+              >
+                🌟 Personal
+              </button>
+              <button
+                type="button"
+                onClick={() => setJourneyType('business')}
+                className={`flex-1 py-3 px-4 rounded-xl border transition-all ${
+                  journeyType === 'business'
+                    ? 'bg-amber-400/20 border-amber-400/50 text-amber-400'
+                    : 'bg-stone-800/50 border-stone-600/30 text-stone-400 hover:border-stone-500'
+                }`}
+              >
+                💼 Business
+              </button>
             </div>
           </div>
 
           {/* Primary Objective */}
-          <div className="bg-stone-900/50 border border-stone-800 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="flex items-center gap-2 text-stone-400 mb-3">
               <Target className="w-5 h-5 text-amber-400" />
-              What You Want Help With
-            </h2>
-
+              <span className="font-medium">Primary Objective</span>
+            </label>
             <textarea
               value={primaryObjective}
               onChange={(e) => setPrimaryObjective(e.target.value)}
               rows={3}
-              className="w-full bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 resize-none"
-              placeholder="Describe what you're trying to figure out..."
+              className="w-full px-4 py-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-100 placeholder-stone-500 focus:border-amber-400/50 focus:outline-none resize-none"
+              placeholder="What do you want to achieve?"
             />
           </div>
 
           {/* Key Context */}
-          <div className="bg-stone-900/50 border border-stone-800 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Key Context</h2>
-
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="text-stone-400 font-medium mb-3 block">Key Context</label>
             <div className="space-y-3">
-              {keyContext.map((point, index) => (
+              {keyContext.map((context, index) => (
                 <div key={index} className="flex gap-2">
                   <input
                     type="text"
-                    value={point}
+                    value={context}
                     onChange={(e) => updateContextPoint(index, e.target.value)}
-                    className="flex-1 bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-amber-500/50"
+                    className="flex-1 px-4 py-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-100 placeholder-stone-500 focus:border-amber-400/50 focus:outline-none"
                     placeholder="Context point..."
                   />
                   <button
+                    type="button"
                     onClick={() => removeContextPoint(index)}
-                    className="px-3 text-stone-500 hover:text-red-400"
+                    className="p-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-400 hover:text-red-400 hover:border-red-400/30 transition-colors"
                   >
-                    ×
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               ))}
               <button
+                type="button"
                 onClick={addContextPoint}
-                className="text-amber-400 hover:text-amber-300 text-sm"
+                className="flex items-center gap-2 text-amber-400 hover:text-amber-300 transition-colors"
               >
-                + Add context point
+                <Plus className="w-4 h-4" />
+                Add context point
               </button>
             </div>
           </div>
 
           {/* Success Definition */}
-          <div className="bg-stone-900/50 border border-stone-800 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">What Success Looks Like</h2>
-
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="text-stone-400 font-medium mb-3 block">Success Definition (Optional)</label>
             <textarea
               value={successDefinition}
               onChange={(e) => setSuccessDefinition(e.target.value)}
               rows={2}
-              className="w-full bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 resize-none"
-              placeholder="How will you know if this worked?"
+              className="w-full px-4 py-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-100 placeholder-stone-500 focus:border-amber-400/50 focus:outline-none resize-none"
+              placeholder="How will you know you've succeeded?"
             />
           </div>
 
           {/* Constraints */}
-          <div className="bg-stone-900/50 border border-stone-800 rounded-2xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Constraints & Considerations</h2>
-
+          <div className="bg-stone-900/50 border border-stone-700/50 rounded-2xl p-6">
+            <label className="text-stone-400 font-medium mb-3 block">Constraints (Optional)</label>
             <div className="space-y-3">
               {constraints.map((constraint, index) => (
                 <div key={index} className="flex gap-2">
@@ -363,60 +436,63 @@ export default function DraftReviewPage() {
                     type="text"
                     value={constraint}
                     onChange={(e) => updateConstraint(index, e.target.value)}
-                    className="flex-1 bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-amber-500/50"
-                    placeholder="Constraint..."
+                    className="flex-1 px-4 py-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-100 placeholder-stone-500 focus:border-amber-400/50 focus:outline-none"
+                    placeholder="Budget, timeline, etc..."
                   />
                   <button
+                    type="button"
                     onClick={() => removeConstraint(index)}
-                    className="px-3 text-stone-500 hover:text-red-400"
+                    className="p-3 rounded-xl bg-stone-800/50 border border-stone-600/30 text-stone-400 hover:text-red-400 hover:border-red-400/30 transition-colors"
                   >
-                    ×
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
               ))}
               <button
+                type="button"
                 onClick={addConstraint}
-                className="text-amber-400 hover:text-amber-300 text-sm"
+                className="flex items-center gap-2 text-amber-400 hover:text-amber-300 transition-colors"
               >
-                + Add constraint
+                <Plus className="w-4 h-4" />
+                Add constraint
               </button>
             </div>
           </div>
-        </div>
 
-        {/* Submit Button */}
-        <div className="mt-8">
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting || !userName || !primaryObjective}
-            className={`w-full py-4 rounded-full font-bold text-lg transition-all ${
-              isSubmitting || !userName || !primaryObjective
-                ? 'bg-stone-700 text-stone-400 cursor-not-allowed'
-                : 'bg-gradient-to-r from-amber-400 to-orange-500 text-stone-900 hover:scale-[1.02] hover:shadow-lg hover:shadow-amber-500/20'
-            }`}
-          >
-            {isSubmitting ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Creating your Kira...
-              </span>
-            ) : (
-              <span className="flex items-center justify-center gap-2">
-                <CheckCircle className="w-5 h-5" />
-                Create My Kira
-              </span>
-            )}
-          </button>
-        </div>
+          {/* Submit Button */}
+          <div className="pt-4">
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className={`w-full py-4 rounded-xl font-medium text-lg transition-all ${
+                isSubmitting
+                  ? 'bg-stone-700 text-stone-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-amber-400 to-orange-500 text-stone-900 hover:scale-[1.02] hover:shadow-lg hover:shadow-amber-500/20'
+              }`}
+            >
+              {isSubmitting ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating your Kira...
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <CheckCircle className="w-5 h-5" />
+                  Create My Kira
+                </span>
+              )}
+            </button>
+          </div>
 
-        {/* Back link */}
-        <div className="text-center mt-6">
-          <a
-            href="/start"
-            className="text-stone-500 hover:text-stone-300 text-sm"
-          >
-            ← Start over
-          </a>
+          {/* Back link */}
+          <div className="text-center mt-6">
+            <a
+              href="/start"
+              className="text-stone-500 hover:text-stone-300 text-sm"
+            >
+              ← Start over
+            </a>
+          </div>
         </div>
       </div>
     </div>
