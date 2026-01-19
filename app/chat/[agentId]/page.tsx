@@ -133,6 +133,7 @@ export default function ChatPage() {
       // Start the ElevenLabs session with Kira speaking first
       await conversation.startSession({
         agentId: agentId,
+        connectionType: "webrtc",
         overrides: {
           agent: {
             firstMessage: greeting,
