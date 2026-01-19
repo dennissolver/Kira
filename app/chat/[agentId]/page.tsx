@@ -1,10 +1,11 @@
 // app/chat/[agentId]/page.tsx
-// Chat page that loads conversation history for seamless continuation
+// Chat page with ElevenLabs voice widget
 
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import { useConversation } from '@11labs/react';
 
 interface Message {
   id: string;
@@ -47,11 +48,35 @@ export default function ChatPage() {
 
   const [agentInfo, setAgentInfo] = useState<AgentInfo | null>(null);
   const [context, setContext] = useState<ConversationContext | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCallActive, setIsCallActive] = useState(false);
+  const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([]);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // ElevenLabs conversation hook
+  const conversation = useConversation({
+    onConnect: () => {
+      console.log('Connected to ElevenLabs');
+      setIsCallActive(true);
+    },
+    onDisconnect: () => {
+      console.log('Disconnected from ElevenLabs');
+      setIsCallActive(false);
+    },
+    onMessage: (message) => {
+      console.log('Message:', message);
+      if (message.message) {
+        setTranscript(prev => [...prev, {
+          role: message.source === 'user' ? 'user' : 'assistant',
+          text: message.message
+        }]);
+      }
+    },
+    onError: (error) => {
+      console.error('ElevenLabs error:', error);
+      setError('Voice connection error. Please try again.');
+    },
+  });
 
   // Load agent info and conversation context on mount
   useEffect(() => {
@@ -81,11 +106,6 @@ export default function ChatPage() {
         const data: ConversationContext = await contextRes.json();
         setContext(data);
 
-        // Load messages in chronological order (reverse the DESC order from API)
-        if (data.recent_messages && data.recent_messages.length > 0) {
-          setMessages(data.recent_messages.reverse());
-        }
-
       } catch (err) {
         console.error('Error loading data:', err);
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -99,10 +119,60 @@ export default function ChatPage() {
     }
   }, [agentId]);
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  // Start the conversation (Kira speaks first)
+  const startConversation = useCallback(async () => {
+    try {
+      // Request microphone permission
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Generate greeting based on context
+      const greeting = context?.has_history
+        ? context.suggested_greeting || getReturningUserGreeting(context)
+        : getNewUserGreeting(agentInfo?.agent_name || 'Kira');
+
+      // Start the ElevenLabs session with Kira speaking first
+      await conversation.startSession({
+        agentId: agentId,
+        overrides: {
+          agent: {
+            firstMessage: greeting,
+          },
+        },
+      });
+
+    } catch (err) {
+      console.error('Failed to start conversation:', err);
+      setError('Could not access microphone. Please allow microphone access and try again.');
+    }
+  }, [agentId, context, agentInfo, conversation]);
+
+  // End the conversation
+  const endConversation = useCallback(async () => {
+    await conversation.endSession();
+    setIsCallActive(false);
+  }, [conversation]);
+
+  // Generate greeting for returning users
+  const getReturningUserGreeting = (ctx: ConversationContext): string => {
+    const timeGreeting = ctx.time_gap_category === 'recent'
+      ? "Hey, you're back!"
+      : ctx.time_gap_category === 'today'
+      ? "Hey! Good to see you again today."
+      : ctx.time_gap_category === 'this_week'
+      ? "Hey! It's been a few days."
+      : "Hey! It's been a while!";
+
+    if (ctx.last_topic) {
+      return `${timeGreeting} Last time we were talking about ${ctx.last_topic}. Want to pick up where we left off, or is there something new on your mind?`;
+    }
+
+    return `${timeGreeting} How can I help you today?`;
+  };
+
+  // Generate greeting for new users
+  const getNewUserGreeting = (agentName: string): string => {
+    return `Hey there! I'm ${agentName}. I'm so excited to finally meet you! I've been looking forward to helping you out. So, what's on your mind today?`;
+  };
 
   // Format time gap for display
   const formatTimeGap = (seconds?: number): string => {
@@ -120,7 +190,7 @@ export default function ChatPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-kira-coral mx-auto mb-4"></div>
           <p className="text-gray-600">Loading your conversation...</p>
@@ -129,14 +199,14 @@ export default function ChatPage() {
     );
   }
 
-  if (error) {
+  if (error && !isCallActive) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center text-red-600">
           <p>Error: {error}</p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-4 px-4 py-2 bg-kira-coral text-white rounded-lg"
+            className="mt-4 px-4 py-2 bg-kira-coral text-white rounded-lg hover:bg-opacity-90 transition"
           >
             Try Again
           </button>
@@ -152,9 +222,9 @@ export default function ChatPage() {
         <img
           src="/kira-avatar.jpg"
           alt="Kira"
-          className="w-10 h-10 rounded-full"
+          className="w-10 h-10 rounded-full object-cover"
         />
-        <div>
+        <div className="flex-1">
           <h1 className="font-semibold text-gray-900">
             {agentInfo?.agent_name || 'Kira'}
           </h1>
@@ -164,68 +234,98 @@ export default function ChatPage() {
             </p>
           )}
         </div>
+        {isCallActive && (
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            <span className="text-sm text-green-600">Connected</span>
+          </div>
+        )}
       </header>
 
-      {/* Session break indicator (if returning after a gap) */}
-      {context?.has_history && context.time_gap_category !== 'recent' && (
-        <div className="text-center py-2 text-xs text-gray-400 bg-gray-100">
-          ─────── Session break ({formatTimeGap(context.time_gap_seconds)}) ───────
-        </div>
-      )}
-
-      {/* Messages */}
+      {/* Transcript Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 ? (
-          <div className="text-center text-gray-500 mt-8">
-            <p>Start your conversation with {agentInfo?.agent_name || 'Kira'}!</p>
+        {transcript.length === 0 && !isCallActive ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <img
+              src="/kira-avatar.jpg"
+              alt="Kira"
+              className="w-24 h-24 rounded-full object-cover mb-4 shadow-lg"
+            />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              {context?.has_history ? 'Welcome back!' : `Meet ${agentInfo?.agent_name || 'Kira'}`}
+            </h2>
+            <p className="text-gray-500 mb-6 max-w-md">
+              {context?.has_history
+                ? `Ready to continue our conversation${context.last_topic ? ` about ${context.last_topic}` : ''}?`
+                : "I'm your AI companion, here to help you with whatever's on your mind."}
+            </p>
+            <button
+              onClick={startConversation}
+              className="px-8 py-4 bg-kira-coral text-white rounded-full text-lg font-medium hover:bg-opacity-90 transition shadow-lg flex items-center gap-3"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              Start Conversation
+            </button>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+          <>
+            {transcript.map((msg, idx) => (
               <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                  message.role === 'user'
-                    ? 'bg-kira-coral text-white'
-                    : 'bg-white border border-gray-200 text-gray-900'
-                }`}
+                key={idx}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <p>{message.content}</p>
-                <p className={`text-xs mt-1 ${
-                  message.role === 'user' ? 'text-white/70' : 'text-gray-400'
-                }`}>
-                  {new Date(message.timestamp).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
-                </p>
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                    msg.role === 'user'
+                      ? 'bg-kira-coral text-white'
+                      : 'bg-white border border-gray-200 text-gray-900 shadow-sm'
+                  }`}
+                >
+                  <p>{msg.text}</p>
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+
+            {/* Speaking indicator */}
+            {isCallActive && conversation.isSpeaking && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-kira-coral rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-2 h-2 bg-kira-coral rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-2 h-2 bg-kira-coral rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                    <span className="text-sm text-gray-500">Kira is speaking...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
-      {/* ElevenLabs Widget Container */}
-      <div className="border-t bg-white p-4">
-        {/*
-          TODO: Insert ElevenLabs conversation widget here
-          The widget should be initialized with:
-          - agentId: {agentId}
-          - userId: {agentInfo?.user_id}
-          - Context from: {context}
-
-          The widget will handle:
-          - Voice input/output
-          - Calling tools (save_message, etc.)
-          - Real-time transcription
-        */}
-        <div className="text-center text-gray-400 py-8">
-          [ElevenLabs Voice Widget]
+      {/* Controls */}
+      {isCallActive && (
+        <div className="border-t bg-white p-4">
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={endConversation}
+              className="px-6 py-3 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition flex items-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              End Conversation
+            </button>
+          </div>
+          <p className="text-center text-xs text-gray-400 mt-2">
+            {conversation.isSpeaking ? '🔊 Kira is speaking...' : '🎤 Listening...'}
+          </p>
         </div>
-      </div>
+      )}
     </div>
   );
 }
