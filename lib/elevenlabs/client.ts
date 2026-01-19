@@ -1,6 +1,6 @@
 // lib/elevenlabs/client.ts
 // ElevenLabs Conversational AI client for Kira
-// FIXED: LLM model must be "gemini-2.0-flash-001" (not "gemini-2.5-flash")
+// FIXED: Use gemini-2.5-flash to match the Setup Kira agent in ElevenLabs dashboard
 
 const BASE_URL = 'https://api.elevenlabs.io/v1';
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
@@ -56,7 +56,7 @@ async function apiRequest<T>(
 }
 
 // =============================================================================
-// TOOL CREATION - UPDATED FORMAT WITH api_schema
+// TOOL CREATION
 // =============================================================================
 
 function buildToolConfig(
@@ -65,7 +65,6 @@ function buildToolConfig(
   webhookUrl: string,
   properties: Record<string, any>
 ) {
-  // Build the request body schema
   const requestBodySchema = {
     type: 'object',
     properties: {
@@ -191,7 +190,7 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
 }
 
 // =============================================================================
-// AGENT CREATION - FIXED LLM MODEL
+// AGENT CREATION - FIXED: Use gemini-2.5-flash (matches your ElevenLabs dashboard)
 // =============================================================================
 
 export async function createKiraAgent(params: CreateAgentParams): Promise<ConversationAgent> {
@@ -201,12 +200,8 @@ export async function createKiraAgent(params: CreateAgentParams): Promise<Conver
       agent: {
         prompt: {
           prompt: params.systemPrompt,
-          // FIXED: Valid LLM models for English agents:
-          // - "gpt-4o-mini"
-          // - "gpt-4o"
-          // - "claude-3-5-sonnet"
-          // - "gemini-2.0-flash-001"
-          llm: 'gemini-2.0-flash-001',
+          // FIXED: Use gemini-2.5-flash - this matches your Setup Kira in ElevenLabs
+          llm: 'gemini-2.5-flash',
           temperature: 0.7,
           max_tokens: -1,
           ...(params.toolIds?.length ? { tool_ids: params.toolIds } : {}),
