@@ -32,3 +32,10 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+.env*.local
+
+.env.local.copy
+tool.json
+tool2.json
