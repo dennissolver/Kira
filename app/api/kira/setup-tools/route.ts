@@ -201,8 +201,14 @@ async function handleCreateOperationalKira(
     ];
 
     const { systemPrompt, firstMessage } = getKiraPrompt({
-      userName,
-      journeyType,
+      framework: {
+        userName: userName,
+        firstName: userName,  // or extract first name
+        location: 'Unknown',  // You may want to collect this
+        journeyType: journeyType,
+        primaryObjective: body.primary_goal,
+        keyContext: body.key_context,
+      },
       existingMemory,
     });
 
