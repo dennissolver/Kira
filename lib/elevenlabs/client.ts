@@ -55,36 +55,41 @@ async function apiRequest<T>(
 }
 
 // =============================================================================
-// TOOL CREATION
+// TOOL CREATION - Updated for new ElevenLabs API format
 // =============================================================================
 
 function buildToolConfig(
   name: string,
   description: string,
   webhookUrl: string,
-  properties: Record<string, unknown>
+  parameters: Array<{
+    name: string;
+    type: string;
+    description: string;
+    required: boolean;
+  }>
 ) {
   return {
     type: 'webhook',
     name,
     description,
-    params: {
-      method: 'POST',
+    webhook: {
       url: webhookUrl,
-      request_body_schema: {
+      method: 'POST',
+      // New API format uses 'api_schema' not 'request_body_schema'
+      api_schema: {
         type: 'object',
         description: `Parameters for ${name}`,
-        properties: {
-          tool_name: {
-            type: 'string',
-            description: 'Tool identifier',
-            value_type: 'constant',
-            constant: name,
-            required: true,
-          },
-          ...properties,
-        },
-        required: ['tool_name', ...Object.keys(properties).filter(k => (properties[k] as Record<string, unknown>).required)],
+        properties: Object.fromEntries(
+          parameters.map(p => [
+            p.name,
+            {
+              type: p.type,
+              description: p.description,
+            },
+          ])
+        ),
+        required: parameters.filter(p => p.required).map(p => p.name),
       },
     },
   };
@@ -98,45 +103,22 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
       'recall_memory',
       "Search Kira's memory for past context about this user - preferences, goals, decisions, and things they've shared",
       toolsUrl,
-      {
-        query: {
-          type: 'string',
-          description: 'What to search for in memory',
-          value_type: 'llm_prompt',
-          required: true,
-        },
-        memory_type: {
-          type: 'string',
-          description: 'Type: preference, context, goal, decision, followup, or all',
-          value_type: 'llm_prompt',
-          required: false,
-        },
-      }
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "recall_memory")', required: true },
+        { name: 'query', type: 'string', description: 'What to search for in memory', required: true },
+        { name: 'memory_type', type: 'string', description: 'Type: preference, context, goal, decision, followup, or all', required: false },
+      ]
     ),
     buildToolConfig(
       'save_memory',
       'Save something important about this user to remember for future conversations',
       toolsUrl,
-      {
-        content: {
-          type: 'string',
-          description: 'The information to remember',
-          value_type: 'llm_prompt',
-          required: true,
-        },
-        memory_type: {
-          type: 'string',
-          description: 'Type: preference, context, goal, decision, followup, correction, or insight',
-          value_type: 'llm_prompt',
-          required: true,
-        },
-        importance: {
-          type: 'number',
-          description: 'Importance 1-10, higher = more important',
-          value_type: 'llm_prompt',
-          required: false,
-        },
-      }
+      [
+        { name: 'tool_name', type: 'string', description: 'Tool identifier (always "save_memory")', required: true },
+        { name: 'content', type: 'string', description: 'The information to remember', required: true },
+        { name: 'memory_type', type: 'string', description: 'Type: preference, context, goal, decision, followup, correction, or insight', required: true },
+        { name: 'importance', type: 'number', description: 'Importance 1-10, higher = more important', required: false },
+      ]
     ),
   ];
 
@@ -144,13 +126,13 @@ export async function createKiraTools(webhookUrl: string): Promise<string[]> {
 
   for (const toolConfig of toolConfigs) {
     try {
-      const res = await fetch(`${BASE_URL}/convai/tools`, {
+      const res = await fetch(`${BASE_URL}/convai/tools/create`, {
         method: 'POST',
         headers: {
           'xi-api-key': ELEVENLABS_API_KEY,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ tool_config: toolConfig }),
+        body: JSON.stringify(toolConfig),
       });
 
       if (res.ok) {
@@ -186,20 +168,17 @@ export async function createKiraAgent(params: CreateAgentParams): Promise<Conver
         language: 'en',
       },
       tts: {
-        model_id: 'eleven_turbo_v2_5',
+        model_id: 'eleven_flash_v2',  // Changed to flash_v2 which is explicitly supported
         voice_id: KIRA_VOICE_ID,
       },
-      // FIX: Explicit minimal ASR config - prevents ElevenLabs from injecting invalid defaults
-      // English agents require this to avoid "must use turbo or flash v2" error
-      asr: {
-        user_input_audio_format: 'pcm_16000',
-      },
+      // FIX: Don't include ASR config at all - let ElevenLabs use defaults
+      // The error happens when we include partial ASR config
       turn: {
         mode: 'turn',
-        turn_timeout: 15, // Give users time to think
+        turn_timeout: 15,
       },
       conversation: {
-        max_duration_seconds: 3600, // 1 hour max
+        max_duration_seconds: 3600,
       },
     },
   };
