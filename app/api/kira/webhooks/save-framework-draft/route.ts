@@ -1,5 +1,5 @@
-// app/api/kira/webhooks/save_framework_draft/route.ts
-// Webhook handler for Setup Kira's save_framework_draft tool
+// app/api/kira/webhooks/save-framework-draft/route.ts
+// Webhook handler for Setup Kira's save-framework-draft tool
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload: SaveFrameworkDraftPayload = await request.json();
 
-    console.log('[save_framework_draft] Received:', {
+    console.log('[save-framework-draft] Received:', {
       user_name: payload.user_name,
       journey_type: payload.journey_type,
       objective: payload.primary_objective?.slice(0, 50) + '...',
@@ -58,14 +58,14 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      console.error('[save_framework_draft] Database error:', error);
+      console.error('[save-framework-draft] Database error:', error);
       return NextResponse.json(
         { error: 'Failed to save draft' },
         { status: 500 }
       );
     }
 
-    console.log('[save_framework_draft] Draft saved:', draft.id);
+    console.log('[save-framework-draft] Draft saved:', draft.id);
 
     // Return success response for ElevenLabs
     // This is what Setup Kira will "hear" as the tool result
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('[save_framework_draft] Error:', error);
+    console.error('[save-framework-draft] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
