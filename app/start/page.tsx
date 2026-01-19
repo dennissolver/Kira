@@ -1,258 +1,379 @@
 "use client";
 
-import React, { useState, Suspense } from 'react';
+import React, { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useConversation } from '@elevenlabs/react';
 
-// Inner component that uses useSearchParams
+type JourneyType = 'personal' | 'business';
+
 function StartPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const journeyType = searchParams.get('type') as 'personal' | 'business' | null;
+  // Check if journey was pre-selected via URL param
+  const preSelectedJourney = searchParams.get('type') as JourneyType | null;
 
-  const [step, setStep] = useState<'choose' | 'signup'>(journeyType ? 'signup' : 'choose');
-  const [selectedJourney, setSelectedJourney] = useState<'personal' | 'business' | null>(journeyType);
-  const [isLoading, setIsLoading] = useState(false);
+  const [selectedJourney, setSelectedJourney] = useState<JourneyType | null>(preSelectedJourney);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPermissionHint, setShowPermissionHint] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [kiraState, setKiraState] = useState<'idle' | 'listening' | 'speaking'>('idle');
+  const audioLevelInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Form state
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
+  const conversation = useConversation({
+    onConnect: () => {
+      console.log('Connected to Setup Kira');
+      setIsConnecting(false);
+      setError(null);
+    },
+    onDisconnect: () => {
+      console.log('Disconnected from Setup Kira');
+      setKiraState('idle');
+      if (audioLevelInterval.current) {
+        clearInterval(audioLevelInterval.current);
+      }
+    },
+    onError: (err: Error | string) => {
+      console.error('Setup Kira error:', err);
+      const errorMessage = typeof err === 'string' ? err : err.message;
+      setError(errorMessage);
+      setIsConnecting(false);
+    },
+    onMessage: (message: { source: string }) => {
+      if (message.source === 'ai') {
+        setKiraState('speaking');
+      } else {
+        setKiraState('listening');
+      }
+    },
+  });
 
-  const handleJourneySelect = (type: 'personal' | 'business') => {
-    setSelectedJourney(type);
-    setStep('signup');
-    router.push(`/start?type=${type}`);
-  };
+  // Audio level animation when connected
+  useEffect(() => {
+    if (conversation.status === 'connected') {
+      audioLevelInterval.current = setInterval(() => {
+        setAudioLevel(kiraState === 'speaking' ? Math.random() * 0.8 + 0.2 : Math.random() * 0.3);
+      }, 100);
+    } else {
+      if (audioLevelInterval.current) {
+        clearInterval(audioLevelInterval.current);
+      }
+      setAudioLevel(0);
+    }
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
+    return () => {
+      if (audioLevelInterval.current) {
+        clearInterval(audioLevelInterval.current);
+      }
+    };
+  }, [conversation.status, kiraState]);
+
+  const startConversation = useCallback(async (journey: JourneyType) => {
+    setSelectedJourney(journey);
+    setIsConnecting(true);
     setError(null);
+    setShowPermissionHint(true);
 
     try {
-      const res = await fetch('/api/kira/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName,
-          lastName,
-          email,
-          journeyType: selectedJourney,
-        }),
-      });
+      // Request microphone permission
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setShowPermissionHint(false);
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to create your Kira');
+      // Get signed URL with journey context - Kira Setup will know which journey
+      const response = await fetch(`/api/kira/start?journey=${journey}`);
+      if (!response.ok) {
+        throw new Error('Failed to start conversation');
       }
+      const { signedUrl } = await response.json();
 
-      router.push(`/chat/${data.agentId}`);
+      // Start the conversation
+      await conversation.startSession({ signedUrl });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-      setIsLoading(false);
+      console.error('Failed to start conversation:', err);
+      setShowPermissionHint(false);
+      if (err instanceof Error && err.name === 'NotAllowedError') {
+        setError('Microphone access is required to talk to Kira. Please allow microphone access and try again.');
+      } else {
+        setError('Failed to connect. Please try again.');
+      }
+      setIsConnecting(false);
+      setSelectedJourney(null);
     }
-  };
+  }, [conversation]);
+
+  const endConversation = useCallback(async () => {
+    try {
+      await conversation.endSession();
+      setSelectedJourney(null);
+    } catch (err) {
+      console.error('Error ending conversation:', err);
+    }
+  }, [conversation]);
+
+  const isConnected = conversation.status === 'connected';
+  const showJourneyCards = !isConnected && !isConnecting;
 
   return (
-    <div className="max-w-2xl w-full">
+    <div className="max-w-4xl mx-auto w-full">
 
-      {/* Logo */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full overflow-hidden border-4 border-amber-200 shadow-lg">
-            <img
-              src="/kira-avatar.jpg"
-              alt="Kira"
-              className="w-full h-full object-cover"
-            />
-          </div>
-          <span className="font-display font-bold text-3xl bg-gradient-to-r from-amber-500 via-pink-500 to-violet-500 bg-clip-text text-transparent">
-            Kira
-          </span>
-        </div>
-      </div>
-
-      {/* Step 1: Choose Journey */}
-      {step === 'choose' && (
-        <div>
+      {/* Journey Selection Cards - Show when not connected */}
+      {showJourneyCards && (
+        <div className="fade-in">
+          {/* Header */}
           <div className="text-center mb-10">
-            <h1 className="font-display text-3xl lg:text-4xl font-bold text-stone-800 mb-4">
-              So, what's your <span className="bg-gradient-to-r from-amber-500 via-pink-500 to-violet-500 bg-clip-text text-transparent italic">it</span>?
-            </h1>
-            <p className="font-body text-xl text-stone-500">
-              Choose your path — Kira will meet you where you are.
+            <div className="inline-flex items-center gap-3 mb-6">
+              <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-amber-400/50 shadow-lg shadow-amber-500/20">
+                <img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full object-cover" />
+              </div>
+              <div className="text-left">
+                <h1 className="font-display text-2xl font-bold text-white">Meet Kira</h1>
+                <p className="font-body text-stone-400 text-sm">Your friendly guide</p>
+              </div>
+            </div>
+            <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-3">
+              What brings you here today?
+            </h2>
+            <p className="font-body text-stone-400 text-lg">
+              Choose your path and let's have a conversation
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
+          {/* Journey Cards */}
+          <div className="grid md:grid-cols-2 gap-6 mb-8">
+            {/* Personal Journey Card */}
             <button
-              onClick={() => handleJourneySelect('personal')}
-              className="group bg-gradient-to-br from-amber-50 to-orange-50 rounded-3xl p-8 border-2 border-amber-200 hover:border-amber-400 hover-pop cursor-pointer text-left"
+              onClick={() => startConversation('personal')}
+              className="group relative bg-gradient-to-br from-stone-900 to-stone-900/80 border border-stone-800 hover:border-amber-500/50 rounded-3xl p-8 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-amber-500/10"
             >
-              <div className="text-5xl mb-4">🏠</div>
-              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">
-                It's personal
-              </h3>
-              <p className="font-body text-stone-600 leading-relaxed mb-6">
-                Life stuff. Planning a trip. Making a decision. Writing something hard. Figuring out what's next.
-              </p>
-              <div className="flex items-center gap-2 font-display font-semibold text-amber-600 group-hover:text-amber-700">
-                Start my personal journey
-                <span className="group-hover:translate-x-1 transition-transform">→</span>
+              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+              <div className="relative">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center mb-5 shadow-lg shadow-amber-500/20">
+                  <svg className="w-7 h-7 text-stone-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+
+                <h3 className="font-display text-xl font-bold text-white mb-2">
+                  Personal Journey
+                </h3>
+                <p className="font-body text-stone-400 mb-4 leading-relaxed">
+                  Life decisions, career moves, personal projects, learning something new, or just thinking things through.
+                </p>
+
+                <div className="flex items-center gap-2 text-amber-400 font-body text-sm font-medium">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                  <span>Start talking</span>
+                  <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
               </div>
             </button>
 
+            {/* Business Journey Card */}
             <button
-              onClick={() => handleJourneySelect('business')}
-              className="group bg-gradient-to-br from-violet-50 to-pink-50 rounded-3xl p-8 border-2 border-violet-200 hover:border-violet-400 hover-pop cursor-pointer text-left"
+              onClick={() => startConversation('business')}
+              className="group relative bg-gradient-to-br from-stone-900 to-stone-900/80 border border-stone-800 hover:border-pink-500/50 rounded-3xl p-8 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-pink-500/10"
             >
-              <div className="text-5xl mb-4">💼</div>
-              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">
-                It's business
-              </h3>
-              <p className="font-body text-stone-600 leading-relaxed mb-6">
-                Work stuff. Strategy. Projects. The pitch you're stuck on. The decision that keeps you up at night.
-              </p>
-              <div className="flex items-center gap-2 font-display font-semibold text-violet-600 group-hover:text-violet-700">
-                Start my business journey
-                <span className="group-hover:translate-x-1 transition-transform">→</span>
+              <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-pink-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+              <div className="relative">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 flex items-center justify-center mb-5 shadow-lg shadow-pink-500/20">
+                  <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+
+                <h3 className="font-display text-xl font-bold text-white mb-2">
+                  Business Journey
+                </h3>
+                <p className="font-body text-stone-400 mb-4 leading-relaxed">
+                  Team processes, customer support, onboarding, training, or building AI assistants for your organization.
+                </p>
+
+                <div className="flex items-center gap-2 text-pink-400 font-body text-sm font-medium">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                  </svg>
+                  <span>Start talking</span>
+                  <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
               </div>
             </button>
           </div>
 
-          <p className="text-center font-body text-stone-400 text-sm mt-8">
-            Both paths get a free month. No credit card required.
+          {/* Footer hint */}
+          <p className="text-center font-body text-stone-500 text-sm">
+            Not sure? Pick one — Kira will help you figure it out.
           </p>
         </div>
       )}
 
-      {/* Step 2: Signup */}
-      {step === 'signup' && selectedJourney && (
-        <div>
-          <button
-            onClick={() => {
-              setStep('choose');
-              setSelectedJourney(null);
-              router.push('/start');
-            }}
-            className="font-body text-stone-500 hover:text-stone-700 mb-6 flex items-center gap-2"
-          >
-            <span>←</span> Back
-          </button>
-
-          <div className="bg-white rounded-3xl p-8 shadow-xl border border-amber-100">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="text-4xl">
-                {selectedJourney === 'personal' ? '🏠' : '💼'}
-              </div>
-              <div>
-                <h2 className="font-display text-2xl font-bold text-stone-800">
-                  {selectedJourney === 'personal' ? 'Personal Journey' : 'Business Journey'}
-                </h2>
-                <p className="font-body text-stone-500">
-                  Let's get you set up with your Kira
-                </p>
+      {/* Connecting State */}
+      {isConnecting && (
+        <div className="text-center fade-in">
+          <div className="relative w-48 h-48 mx-auto mb-8">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-400/20 to-pink-400/20 animate-pulse" />
+            <div className="absolute inset-2 rounded-full bg-gradient-to-br from-amber-400 via-orange-400 to-pink-400 p-1">
+              <div className="w-full h-full rounded-full bg-stone-900 p-1">
+                <img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full rounded-full object-cover" />
               </div>
             </div>
-
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-body text-sm font-medium text-stone-700 mb-1">
-                    First name
-                  </label>
-                  <input
-                    type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none font-body"
-                    placeholder="Dennis"
-                  />
-                </div>
-                <div>
-                  <label className="block font-body text-sm font-medium text-stone-700 mb-1">
-                    Last name <span className="text-stone-400">(optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none font-body"
-                    placeholder="Smith"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-body text-sm font-medium text-stone-700 mb-1">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none font-body"
-                  placeholder="dennis@example.com"
-                />
-              </div>
-
-              {error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
-                  <p className="font-body text-red-600 text-sm">{error}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isLoading}
-                className={`w-full py-4 rounded-xl font-display font-bold text-lg transition-all ${
-                  selectedJourney === 'personal'
-                    ? 'gradient-sunny text-stone-800 hover:shadow-lg hover:shadow-amber-200'
-                    : 'gradient-coral text-white hover:shadow-lg hover:shadow-pink-200'
-                } ${isLoading ? 'opacity-70 cursor-not-allowed' : 'hover-pop'}`}
-              >
-                {isLoading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Creating your Kira...
-                  </span>
-                ) : (
-                  'Start Talking to Kira →'
-                )}
-              </button>
-
-              <p className="text-center font-body text-stone-400 text-sm">
-                Free for 30 days. No credit card required.
-              </p>
-            </form>
           </div>
 
-          <div className="mt-8 bg-white/50 rounded-2xl p-6 border border-amber-100">
-            <h3 className="font-display font-semibold text-stone-800 mb-3">
-              What happens next?
-            </h3>
-            <div className="space-y-3 font-body text-stone-600 text-sm">
-              <div className="flex items-start gap-3">
-                <span className="text-amber-500">1.</span>
-                <span>We'll create your personal Kira — she'll remember you and your conversations.</span>
+          <h2 className="font-display text-2xl font-bold text-white mb-3">
+            Connecting to Kira...
+          </h2>
+          <p className="font-body text-stone-400 mb-6">
+            {selectedJourney === 'personal' ? 'Getting ready for your personal journey' : 'Setting up for your business needs'}
+          </p>
+
+          {showPermissionHint && (
+            <div className="flex items-center justify-center gap-2 text-amber-400/80 font-body text-sm">
+              <svg className="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              <span>Please allow microphone access when prompted</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Connected State - Voice Conversation */}
+      {isConnected && (
+        <div className="text-center fade-in">
+          {/* Kira Avatar with Audio Visualization */}
+          <div className="relative mb-8 inline-block">
+            {/* Audio visualization rings */}
+            <div
+              className="absolute inset-0 rounded-full bg-amber-400/10 transition-transform duration-100"
+              style={{ transform: `scale(${1.3 + audioLevel * 0.4})`, opacity: 0.3 + audioLevel * 0.3 }}
+            />
+            <div
+              className="absolute inset-0 rounded-full bg-pink-400/10 transition-transform duration-100"
+              style={{ transform: `scale(${1.5 + audioLevel * 0.5})`, opacity: 0.2 + audioLevel * 0.2 }}
+            />
+            <div
+              className="absolute inset-0 rounded-full bg-orange-400/5 transition-transform duration-100"
+              style={{ transform: `scale(${1.7 + audioLevel * 0.6})`, opacity: 0.1 + audioLevel * 0.15 }}
+            />
+
+            {/* Avatar */}
+            <div className="relative w-48 h-48 md:w-56 md:h-56 rounded-full glow-ring-active">
+              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-400 via-orange-400 to-pink-400 p-1">
+                <div className="w-full h-full rounded-full bg-stone-900 p-1">
+                  <img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full rounded-full object-cover" />
+                </div>
               </div>
-              <div className="flex items-start gap-3">
-                <span className="text-amber-500">2.</span>
-                <span>You'll start talking right away — no setup, no onboarding quiz.</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <span className="text-amber-500">3.</span>
-                <span>Kira will explain how the two-way partnership works — then you dive in.</span>
+
+              {/* Status indicator */}
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-stone-900/90 backdrop-blur-sm px-4 py-1.5 rounded-full border border-amber-400/30">
+                <div className={`w-2 h-2 rounded-full status-dot ${
+                  kiraState === 'speaking' ? 'bg-amber-400' : 
+                  kiraState === 'listening' ? 'bg-green-400' : 'bg-stone-500'
+                }`} />
+                <span className="font-body text-xs text-stone-300">
+                  {kiraState === 'speaking' ? 'Kira is speaking' :
+                   kiraState === 'listening' ? 'Listening...' : 'Connected'}
+                </span>
               </div>
             </div>
+          </div>
+
+          {/* Journey indicator */}
+          <div className="mb-4">
+            <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-body ${
+              selectedJourney === 'personal' 
+                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' 
+                : 'bg-pink-500/10 text-pink-400 border border-pink-500/20'
+            }`}>
+              {selectedJourney === 'personal' ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Personal Journey
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  Business Journey
+                </>
+              )}
+            </span>
+          </div>
+
+          <h1 className="font-display text-3xl md:text-4xl font-bold text-white mb-3">
+            I'm listening
+          </h1>
+          <p className="font-body text-lg text-stone-400 mb-8 max-w-md mx-auto">
+            {selectedJourney === 'personal'
+              ? "Tell me what's on your mind. I'm here to help you think things through."
+              : "Tell me about your business challenge. I'll help you figure out the best approach."
+            }
+          </p>
+
+          {/* End conversation button */}
+          <button
+            onClick={endConversation}
+            className="px-8 py-4 rounded-full font-display font-bold text-lg bg-stone-800 text-white border border-stone-700 transition-all duration-300 hover:bg-stone-700 hover:scale-105"
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              End Conversation
+            </span>
+          </button>
+
+          {/* Conversation tips */}
+          <div className="mt-10 max-w-md mx-auto">
+            <div className="bg-stone-900/50 backdrop-blur-sm border border-stone-800 rounded-2xl p-5">
+              <h3 className="font-display font-semibold text-stone-300 mb-3 text-sm">
+                {selectedJourney === 'personal' ? 'Things to explore' : 'Things to discuss'}
+              </h3>
+              <div className="space-y-2 font-body text-stone-500 text-sm">
+                {selectedJourney === 'personal' ? (
+                  <>
+                    <p>"I'm trying to decide between two career paths..."</p>
+                    <p>"I want to learn something new but don't know where to start..."</p>
+                    <p>"I need help thinking through a big decision..."</p>
+                  </>
+                ) : (
+                  <>
+                    <p>"We spend too much time onboarding new team members..."</p>
+                    <p>"Our customers keep asking the same questions..."</p>
+                    <p>"I want to automate some of our internal processes..."</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="mt-8 max-w-md mx-auto fade-in">
+          <div className="bg-red-900/30 border border-red-500/30 rounded-2xl px-6 py-4 backdrop-blur-sm">
+            <p className="font-body text-red-300 text-sm text-center">{error}</p>
+            <button
+              onClick={() => {
+                setError(null);
+                setSelectedJourney(null);
+              }}
+              className="mt-3 w-full text-red-400 hover:text-red-300 text-sm font-medium transition-colors"
+            >
+              Try Again
+            </button>
           </div>
         </div>
       )}
@@ -260,58 +381,100 @@ function StartPageContent() {
   );
 }
 
-// Loading fallback
 function StartPageLoading() {
   return (
-    <div className="max-w-2xl w-full flex items-center justify-center py-20">
+    <div className="flex items-center justify-center">
       <div className="text-center">
-        <div className="w-12 h-12 rounded-full border-4 border-amber-200 border-t-amber-500 animate-spin mx-auto mb-4"></div>
+        <div className="w-12 h-12 rounded-full border-4 border-amber-200/20 border-t-amber-500 animate-spin mx-auto mb-4" />
         <p className="font-body text-stone-500">Loading...</p>
       </div>
     </div>
   );
 }
 
-// Main page component with Suspense wrapper
 export default function StartPage() {
   return (
-    <div className="min-h-screen bg-amber-50 font-sans">
+    <div className="min-h-screen bg-stone-950 font-sans overflow-hidden">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Outfit:wght@300;400;500;600;700&display=swap');
         
         .font-display { font-family: 'Outfit', sans-serif; }
         .font-body { font-family: 'DM Sans', sans-serif; }
         
-        .gradient-hero {
+        .gradient-radial {
           background: 
-            radial-gradient(ellipse at 20% 20%, rgba(251, 191, 36, 0.3) 0%, transparent 50%),
-            radial-gradient(ellipse at 80% 80%, rgba(244, 114, 182, 0.25) 0%, transparent 50%),
-            linear-gradient(135deg, #fffbeb 0%, #fef3c7 50%, #fce7f3 100%);
+            radial-gradient(ellipse at 50% 30%, rgba(251, 191, 36, 0.12) 0%, transparent 50%),
+            radial-gradient(ellipse at 30% 70%, rgba(244, 114, 182, 0.08) 0%, transparent 50%),
+            radial-gradient(ellipse at 70% 60%, rgba(251, 146, 60, 0.06) 0%, transparent 50%);
         }
         
-        .hover-pop {
-          transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+        .glow-ring-active {
+          animation: pulse-glow 2s ease-in-out infinite;
         }
         
-        .hover-pop:hover {
-          transform: translateY(-4px) scale(1.02);
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        @keyframes pulse-glow {
+          0%, 100% {
+            box-shadow: 
+              0 0 60px rgba(251, 191, 36, 0.4),
+              0 0 120px rgba(251, 191, 36, 0.2),
+              0 0 180px rgba(244, 114, 182, 0.15);
+          }
+          50% {
+            box-shadow: 
+              0 0 80px rgba(251, 191, 36, 0.5),
+              0 0 160px rgba(251, 191, 36, 0.3),
+              0 0 240px rgba(244, 114, 182, 0.2);
+          }
         }
         
-        .gradient-sunny {
-          background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+        .status-dot {
+          animation: status-pulse 2s ease-in-out infinite;
         }
         
-        .gradient-coral {
-          background: linear-gradient(135deg, #fb7185 0%, #f472b6 100%);
+        @keyframes status-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        
+        .fade-in {
+          animation: fade-in 0.6s ease-out forwards;
+        }
+        
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(16px); }
+          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
 
-      <div className="gradient-hero min-h-screen flex items-center justify-center p-6">
+      {/* Background */}
+      <div className="absolute inset-0 gradient-radial" />
+
+      {/* Subtle grid */}
+      <div
+        className="absolute inset-0 opacity-[0.02]"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+          backgroundSize: '60px 60px'
+        }}
+      />
+
+      {/* Main Content */}
+      <div className="relative min-h-screen flex flex-col items-center justify-center px-6 py-12">
         <Suspense fallback={<StartPageLoading />}>
           <StartPageContent />
         </Suspense>
       </div>
+
+      {/* Back to home */}
+      <a
+        href="/"
+        className="fixed top-6 left-6 font-body text-stone-500 hover:text-stone-300 text-sm transition-colors flex items-center gap-2"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to home
+      </a>
     </div>
   );
 }

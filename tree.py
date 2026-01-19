@@ -35,4 +35,4 @@ def print_tree(start_path, prefix='', max_depth=None, current_depth=0):
 if __name__ == '__main__':
     root_dir = os.path.dirname(os.path.abspath(__file__))
     print(f"📂 Project Directory Tree from: {root_dir}\n")
-    print_tree(root_dir, max_depth=4)  # Limit depth to avoid huge output
+    print_tree(root_dir, max_depth=7)  # Limit depth to avoid huge output

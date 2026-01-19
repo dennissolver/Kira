@@ -1,74 +1,78 @@
 // app/api/kira/start/route.ts
+// Returns a signed URL for connecting to the Setup Kira agent
+// Passes journey context so Setup Kira knows which path the user chose
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getSignedUrl } from '@/lib/elevenlabs/client';
-import { createServiceClient } from '@/lib/supabase/server';
 
-export async function POST(request: NextRequest) {
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
+const SETUP_AGENT_ID = process.env.KIRA_SETUP_AGENT_ID;
+
+export async function GET(request: NextRequest) {
+  if (!ELEVENLABS_API_KEY) {
+    return NextResponse.json(
+      { error: 'ElevenLabs API key not configured' },
+      { status: 500 }
+    );
+  }
+
+  if (!SETUP_AGENT_ID) {
+    return NextResponse.json(
+      { error: 'Setup agent ID not configured' },
+      { status: 500 }
+    );
+  }
+
+  // Get the journey type from query params
+  const { searchParams } = new URL(request.url);
+  const journey = searchParams.get('journey') as 'personal' | 'business' | null;
+
+  if (!journey || !['personal', 'business'].includes(journey)) {
+    return NextResponse.json(
+      { error: 'Invalid journey type. Must be "personal" or "business"' },
+      { status: 400 }
+    );
+  }
+
   try {
-    const body = await request.json();
-    const { agentId } = body as { agentId: string };
+    // Get signed URL from ElevenLabs with custom data
+    // The journey context will be available to the agent via dynamic variables
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${SETUP_AGENT_ID}`,
+      {
+        method: 'GET',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+        },
+      }
+    );
 
-    if (!agentId) {
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[kira/start] ElevenLabs error:', errorText);
       return NextResponse.json(
-        { error: 'Agent ID is required' },
-        { status: 400 }
+        { error: 'Failed to get conversation URL' },
+        { status: response.status }
       );
     }
 
-    // Verify this agent exists in our database
-    const supabase = createServiceClient();
-    const { data: agent } = await supabase
-      .from('kira_agents')
-      .select('*')
-      .eq('elevenlabs_agent_id', agentId)
-      .eq('status', 'active')
-      .single();
+    const data = await response.json();
 
-    if (!agent) {
-      return NextResponse.json(
-        { error: 'Agent not found' },
-        { status: 404 }
-      );
-    }
-
-    // Get signed URL from ElevenLabs
-    const signedUrl = await getSignedUrl(agentId);
-
-    // Create a conversation record
-    const { data: conversation, error: convError } = await supabase
-      .from('conversations')
-      .insert({
-        user_id: agent.user_id,
-        kira_agent_id: agent.id,
-        status: 'active',
-      })
-      .select()
-      .single();
-
-    if (convError) {
-      console.warn('[kira/start] Failed to create conversation record:', convError);
-      // Don't fail the request - conversation tracking is secondary
-    }
-
-    // Update agent's last conversation timestamp
-    await supabase
-      .from('kira_agents')
-      .update({ 
-        last_conversation_at: new Date().toISOString(),
-        total_conversations: agent.total_conversations + 1,
-      })
-      .eq('id', agent.id);
-
+    // Return the signed URL along with journey context
+    // The frontend will pass this to the conversation session
     return NextResponse.json({
-      success: true,
-      signedUrl,
-      conversationId: conversation?.id,
+      signedUrl: data.signed_url,
+      journey: journey,
+      // Additional context that can be passed to the agent
+      context: {
+        journey_type: journey,
+        journey_label: journey === 'personal' ? 'Personal Journey' : 'Business Journey',
+        timestamp: new Date().toISOString(),
+      }
     });
-
   } catch (error) {
     console.error('[kira/start] Error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }
