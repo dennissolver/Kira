@@ -5,7 +5,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { useConversation } from '@11labs/react';
+import { useConversation } from '@elevenlabs/react';
 
 interface Message {
   id: string;
