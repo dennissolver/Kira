@@ -154,6 +154,27 @@ export default function ChatPage() {
       setIsMicAllowed(false);
     }
   }, [agentId, context, agentInfo, conversation]);
+  // Auto-start conversation when ready
+useEffect(() => {
+  async function autoStart() {
+    if (loading || !agentInfo || isCallActive) return;
+
+    try {
+      const permissionStatus = await navigator.permissions.query({
+        name: 'microphone' as PermissionName
+      });
+
+      if (permissionStatus.state === 'granted') {
+        // Mic already allowed - start immediately
+        await startConversation();
+      }
+    } catch (err) {
+      // Permission API not supported - user will need to click
+    }
+  }
+
+  autoStart();
+}, [loading, agentInfo, isCallActive, startConversation]);
 
   const endConversation = useCallback(async () => {
     await conversation.endSession();

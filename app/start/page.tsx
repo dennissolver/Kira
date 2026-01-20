@@ -215,7 +215,7 @@ export default function StartPage() {
               Back to selection
             </button>
           ) : (
-            <a
+
               href="/"
               className="text-stone-500 hover:text-stone-300 text-sm transition-colors inline-flex items-center gap-2"
             >
@@ -308,7 +308,7 @@ export default function StartPage() {
                 <div>
                   <p className="text-amber-200 font-medium mb-1">How it works:</p>
                   <ol className="text-amber-200/70 text-sm space-y-1 list-decimal list-inside">
-                    <li>Click the button below to start talking with Kira</li>
+                    <li>Kira will start talking - just listen and respond naturally</li>
                     <li>Tell her what you are trying to figure out</li>
                     <li>She will create a brief for you to review</li>
                     <li>The Review Framework button will turn green when ready</li>
@@ -317,12 +317,13 @@ export default function StartPage() {
               </div>
             </div>
 
-            {/* ElevenLabs Widget with journey context */}
+            {/* ElevenLabs Widget with journey context and auto-connect */}
             <div className="flex justify-center mb-8">
               {widgetLoaded && SETUP_KIRA_AGENT_ID ? (
                 <elevenlabs-convai
                   agent-id={SETUP_KIRA_AGENT_ID}
                   dynamic-variables={JSON.stringify({ journey_type: selectedJourney })}
+                  auto-connect="true"
                 ></elevenlabs-convai>
               ) : (
                 <div className="flex items-center gap-2 text-stone-400">
@@ -392,10 +393,11 @@ export default function StartPage() {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      'elevenlabs-convai': React.DetailedHTMLProps<
+      'elevenlabs-convai': React.DetailedHTMLProps
         React.HTMLAttributes<HTMLElement> & {
           'agent-id': string;
           'dynamic-variables'?: string;
+          'auto-connect'?: string;
         },
         HTMLElement
       >;
