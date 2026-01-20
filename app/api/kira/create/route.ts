@@ -1,7 +1,5 @@
-// app/api/kira/create/route.ts
-// Fully instrumented, CORRECT ElevenLabs ConvAI agent creation
-
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import {
   getKiraPrompt,
@@ -10,20 +8,22 @@ import {
   KiraFramework,
   JourneyType,
 } from '@/lib/kira/prompts';
-import { randomUUID } from 'crypto';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-function log(
+/* ------------------------------------------------------------------ */
+/* Logging helper                                                      */
+/* ------------------------------------------------------------------ */
+async function log(
   supabase: any,
   requestId: string,
   step: string,
   status: 'start' | 'success' | 'error',
   message?: string,
-  details?: any
+  details?: Record<string, any>
 ) {
-  return supabase.from('kira_logs').insert({
+  await supabase.from('kira_logs').insert({
     request_id: requestId,
     step,
     status,
@@ -40,19 +40,24 @@ export async function POST(req: NextRequest) {
     await log(supabase, requestId, 'init', 'start');
 
     if (!ELEVENLABS_API_KEY) {
-      throw new Error('Missing ELEVENLABS_API_KEY');
+      throw new Error('ELEVENLABS_API_KEY missing');
     }
 
     await log(supabase, requestId, 'env_check', 'success');
 
-    const { draftId, email } = await req.json();
-    await log(supabase, requestId, 'request_parsed', 'success', null, {
+    const body = await req.json();
+    const { draftId, email } = body as { draftId: string; email: string };
+
+    if (!draftId || !email) {
+      throw new Error('draftId or email missing');
+    }
+
+    await log(supabase, requestId, 'request_parsed', 'success', undefined, {
       draftId,
       email,
     });
 
-    /* ---------------- Load draft ---------------- */
-
+    /* ---------------- Draft ---------------- */
     await log(supabase, requestId, 'draft_load', 'start');
 
     const { data: draft } = await supabase
@@ -63,12 +68,11 @@ export async function POST(req: NextRequest) {
 
     if (!draft) throw new Error('Draft not found');
 
-    await log(supabase, requestId, 'draft_load', 'success', null, {
+    await log(supabase, requestId, 'draft_load', 'success', undefined, {
       status: draft.status,
     });
 
     /* ---------------- User ---------------- */
-
     await log(supabase, requestId, 'user_lookup', 'start');
 
     const firstName = extractFirstName(draft.user_name);
@@ -80,7 +84,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (!user) {
-      const res = await supabase
+      const { data: newUser, error } = await supabase
         .from('users')
         .insert({
           email: email.toLowerCase(),
@@ -89,15 +93,35 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
 
-      user = res.data;
+      if (error || !newUser) throw new Error('User create failed');
+      user = newUser;
     }
 
-    await log(supabase, requestId, 'user_lookup', 'success', null, {
+    await log(supabase, requestId, 'user_lookup', 'success', undefined, {
       userId: user.id,
     });
 
-    /* ---------------- Prompt ---------------- */
+    /* ---------------- Existing agent check ---------------- */
+    await log(supabase, requestId, 'agent_check', 'start');
 
+    const { data: existing } = await supabase
+      .from('kira_agents')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('journey_type', draft.journey_type)
+      .eq('status', 'active')
+      .single();
+
+    if (existing) {
+      await log(supabase, requestId, 'agent_check', 'success', 'existing');
+      return NextResponse.json({
+        success: true,
+        agentId: existing.elevenlabs_agent_id,
+        isExisting: true,
+      });
+    }
+
+    /* ---------------- Prompt ---------------- */
     await log(supabase, requestId, 'prompt_build', 'start');
 
     const framework: KiraFramework = {
@@ -106,31 +130,29 @@ export async function POST(req: NextRequest) {
       location: draft.location,
       journeyType: draft.journey_type as JourneyType,
       primaryObjective: draft.primary_objective,
-      keyContext: draft.key_context || [],
+      keyContext: draft.key_context ?? [],
       successDefinition: draft.success_definition,
       constraints: draft.constraints,
     };
 
     const { systemPrompt, firstMessage } = getKiraPrompt({ framework });
-
     const agentName = generateAgentName(
       draft.journey_type,
       firstName,
       user.id
     );
 
-    await log(supabase, requestId, 'prompt_build', 'success', null, {
+    await log(supabase, requestId, 'prompt_build', 'success', undefined, {
       agentName,
     });
 
-    /* ---------------- ELEVENLABS (THE FIX) ---------------- */
-
+    /* ---------------- ELEVENLABS (CORRECT ENDPOINT) ---------------- */
     await log(supabase, requestId, 'elevenlabs_create', 'start');
 
     const elevenRes = await fetch(
-      'https://api.elevenlabs.io/v1/convai/agents',
+      'https://api.elevenlabs.io/v1/convai/agents/create',
       {
-        method: 'PUT', // ✅ THIS WAS THE BUG
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'xi-api-key': ELEVENLABS_API_KEY,
@@ -140,11 +162,11 @@ export async function POST(req: NextRequest) {
           conversation_config: {
             agent: {
               model: 'eleven_multilingual_v2',
-              voice_id: 'EXAVITQu4vr4xnSDxMaL',
               prompt: {
                 system: systemPrompt,
                 first_message: firstMessage,
               },
+              voice_id: 'EXAVITQu4vr4xnSDxMaL',
             },
           },
           webhook_url: `${APP_URL}/api/webhooks/elevenlabs-router`,
@@ -152,41 +174,32 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    const responseText = await elevenRes.text();
-
     if (!elevenRes.ok) {
+      const text = await elevenRes.text();
       await log(
         supabase,
         requestId,
         'elevenlabs_create',
         'error',
         'ElevenLabs HTTP error',
-        {
-          status: elevenRes.status,
-          response: responseText,
-        }
+        { status: elevenRes.status, response: text }
       );
-      throw new Error('ElevenLabs agent creation failed');
+      throw new Error('ElevenLabs create failed');
     }
 
-    const agent = JSON.parse(responseText);
+    const elevenData = await elevenRes.json();
+    const agentId = elevenData.agent_id;
 
-    await log(
-      supabase,
-      requestId,
-      'elevenlabs_create',
-      'success',
-      null,
-      { agent_id: agent.agent_id }
-    );
+    await log(supabase, requestId, 'elevenlabs_create', 'success', undefined, {
+      agentId,
+    });
 
     /* ---------------- Save agent ---------------- */
-
     await supabase.from('kira_agents').insert({
       user_id: user.id,
       agent_name: agentName,
       journey_type: draft.journey_type,
-      elevenlabs_agent_id: agent.agent_id,
+      elevenlabs_agent_id: agentId,
       framework,
       draft_id: draftId,
       status: 'active',
@@ -199,7 +212,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      agentId: agent.agent_id,
+      agentId,
+      agentName,
       requestId,
     });
   } catch (err: any) {
@@ -208,11 +222,11 @@ export async function POST(req: NextRequest) {
       requestId,
       'fatal',
       'error',
-      err.message
+      err?.message ?? 'Unknown error'
     );
 
     return NextResponse.json(
-      { error: err.message, requestId },
+      { error: 'Create failed', requestId },
       { status: 500 }
     );
   }
