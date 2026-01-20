@@ -3,8 +3,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import crypto from 'crypto';
 
-const WEBHOOK_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET || 'kira-webhook-secret';
+const WEBHOOK_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET!;
 
 interface WebhookPayload {
   type: 'conversation.started' | 'conversation.ended' | 'conversation.transcript';
@@ -18,16 +19,55 @@ interface WebhookPayload {
   };
 }
 
+function verifySignature(payload: string, signature: string | null): boolean {
+  if (!signature || !WEBHOOK_SECRET) {
+    console.warn('[kira/webhook] Missing signature or secret');
+    return false;
+  }
+
+  // Parse signature: t=timestamp,v0=hash
+  const parts = signature.split(',');
+  const timestamp = parts.find(p => p.startsWith('t='))?.slice(2);
+  const hash = parts.find(p => p.startsWith('v0='))?.slice(3);
+
+  if (!timestamp || !hash) {
+    console.warn('[kira/webhook] Invalid signature format');
+    return false;
+  }
+
+  // Verify timestamp is recent (within 5 minutes)
+  const timestampAge = Math.abs(Date.now() / 1000 - parseInt(timestamp));
+  if (timestampAge > 300) {
+    console.warn('[kira/webhook] Signature timestamp too old');
+    return false;
+  }
+
+  // Compute expected hash: HMAC-SHA256 of "timestamp.payload"
+  const expectedHash = crypto
+    .createHmac('sha256', WEBHOOK_SECRET)
+    .update(`${timestamp}.${payload}`)
+    .digest('hex');
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expectedHash));
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Verify webhook secret
-    const signature = request.headers.get('x-webhook-secret');
-    if (signature !== WEBHOOK_SECRET) {
-      console.warn('[kira/webhook] Invalid webhook secret');
+    // Get raw body for signature verification
+    const rawBody = await request.text();
+    const signature = request.headers.get('elevenlabs-signature');
+
+    // Verify HMAC signature
+    if (!verifySignature(rawBody, signature)) {
+      console.warn('[kira/webhook] Invalid webhook signature');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const payload = await request.json() as WebhookPayload;
+    const payload = JSON.parse(rawBody) as WebhookPayload;
     const { type, conversation_id, agent_id, data } = payload;
 
     console.log(`[kira/webhook] Received: ${type} for conversation ${conversation_id}`);
@@ -123,7 +163,7 @@ export async function POST(request: NextRequest) {
 // Simple topic extraction from transcript
 function extractTopics(transcript: Array<{ role: string; message: string }>): string[] {
   const topics: Set<string> = new Set();
-  
+
   // Common topic indicators
   const topicPatterns = [
     /planning (?:a |my )?(trip|event|wedding|party|meal|move)/gi,
