@@ -295,7 +295,10 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-orange-50">
-      <div className="relative flex flex-col h-screen max-w-2xl mx-auto">
+      {/* ============ CORPORATE AI SOLUTIONS TOP BANNER ============ */}
+      <CorporateAIBanner />
+
+      <div className="relative flex flex-col h-[calc(100vh-52px)] max-w-2xl mx-auto">
         {/* Header */}
         <header className="flex items-center gap-4 p-4 pt-6">
           <div className="relative">
@@ -319,17 +322,6 @@ export default function ChatPage() {
               {isCallActive ? '🟢 Live conversation' : isPaused ? '⏸️ Paused' : 'Your AI companion'}
             </p>
           </div>
-
-          {/* Corporate AI Solutions Badge */}
-          <a
-            href="https://corporate-ai-solutions.vercel.app/marketplace"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-full text-xs transition-colors"
-          >
-            <span className="opacity-70">by</span>
-            <span className="font-semibold">CAS</span>
-          </a>
         </header>
 
         {/* Main Content Area */}
@@ -397,7 +389,7 @@ export default function ChatPage() {
         {/* ============================================
             BOTTOM CONTROL BAR - Always Visible
             ============================================ */}
-        <footer className="border-t border-gray-200 bg-white p-4 pb-14 safe-area-pb">
+        <footer className="border-t border-gray-200 bg-white p-4 safe-area-pb">
           {/* Main Control Buttons Row */}
           <div className="flex items-center justify-center gap-3 mb-4">
             {/* START Button - shown when not active and not paused */}
@@ -505,9 +497,6 @@ export default function ChatPage() {
         agentName={agentInfo?.agent_name || 'Kira'}
         userId={agentInfo?.user_id}
       />
-
-      {/* ============ CORPORATE AI SOLUTIONS FOOTER ============ */}
-      <CorporateAIFooter />
     </div>
   );
 }
@@ -1120,71 +1109,105 @@ function CompleteProjectModal({
 }
 
 /* ================================================================
-   CORPORATE AI SOLUTIONS FOOTER
+   CORPORATE AI SOLUTIONS TOP BANNER
    ================================================================ */
 
-function CorporateAIFooter() {
+function CorporateAIBanner() {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40">
-      {/* Collapsed bar */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full bg-slate-900 text-white py-2 px-4 flex items-center justify-center gap-2 text-sm hover:bg-slate-800 transition-colors"
-      >
-        <span className="text-amber-400">⚡</span>
-        <span className="opacity-80">Kira by</span>
-        <span className="font-semibold">Corporate AI Solutions</span>
-        <svg
-          className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-        </svg>
-      </button>
-
-      {/* Expanded panel */}
-      {isExpanded && (
-        <div className="bg-slate-900 border-t border-slate-700 px-6 py-6">
-          <div className="max-w-2xl mx-auto">
-            <div className="text-center mb-4">
-              <h3 className="text-white font-bold text-lg mb-1">Corporate AI Solutions</h3>
-              <p className="text-slate-400 text-sm">
-                Kira is one of a suite of AI Voice Agent platforms, created by the masters of Voice AI Solutions.
+    <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
+      {/* Main Banner - Always Visible */}
+      <div className="max-w-4xl mx-auto px-4 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 flex-1">
+            <span className="text-amber-400 text-xl">⚡</span>
+            <div className="flex-1">
+              <p className="text-sm sm:text-base font-medium">
+                <span className="text-amber-400">Tired of generic AI?</span>
+                {' '}Kira is just one of our specialized Voice AI agents.
               </p>
             </div>
+          </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <a
-                href="https://corporate-ai-solutions.vercel.app/marketplace"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="bg-amber-500 hover:bg-amber-400 text-slate-900 px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center gap-2"
+          <div className="flex items-center gap-2">
+            <a
+              href="https://corporate-ai-solutions.vercel.app/marketplace"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:inline-flex bg-amber-500 hover:bg-amber-400 text-slate-900 px-4 py-1.5 rounded-full text-sm font-bold transition-colors whitespace-nowrap"
+            >
+              Explore All Agents →
+            </a>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
+              aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              <svg
+                className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                Explore Marketplace →
-              </a>
-              <a
-                href="https://corporate-ai-solutions.vercel.app/studio/thesis"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-slate-300 hover:text-amber-400 px-4 py-2 text-sm transition-colors"
-              >
-                Longtail AI Ventures
-              </a>
-              <a
-                href="/about"
-                className="text-slate-300 hover:text-amber-400 px-4 py-2 text-sm transition-colors"
-              >
-                Our Story
-              </a>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded Panel */}
+      {isExpanded && (
+        <div className="border-t border-slate-700 bg-slate-900/50">
+          <div className="max-w-4xl mx-auto px-4 py-6">
+            {/* Problem/Solution Cards */}
+            <div className="grid sm:grid-cols-3 gap-4 mb-6">
+              <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                <div className="text-2xl mb-2">🎯</div>
+                <h4 className="font-semibold text-amber-400 mb-1">Sales AI Agents</h4>
+                <p className="text-slate-400 text-sm">Convert more leads with AI that qualifies, nurtures, and books meetings 24/7</p>
+              </div>
+              <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                <div className="text-2xl mb-2">🛎️</div>
+                <h4 className="font-semibold text-amber-400 mb-1">Customer Service AI</h4>
+                <p className="text-slate-400 text-sm">Handle support tickets instantly. No hold times. No frustrated customers.</p>
+              </div>
+              <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                <div className="text-2xl mb-2">📋</div>
+                <h4 className="font-semibold text-amber-400 mb-1">Operations AI</h4>
+                <p className="text-slate-400 text-sm">Automate scheduling, intake, and workflows. Free your team for high-value work.</p>
+              </div>
             </div>
 
-            <p className="text-center text-slate-500 text-xs mt-4">
-              © 2025 Corporate AI Solutions · Created by Dennis McMahin
-            </p>
+            {/* CTA Section */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-700">
+              <div>
+                <p className="text-slate-300 text-sm">
+                  <span className="font-semibold text-white">Corporate AI Solutions</span> —
+                  Voice AI that actually works for your business
+                </p>
+                <p className="text-slate-500 text-xs mt-1">Created by Dennis McMahin · Longtail AI Ventures</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href="https://corporate-ai-solutions.vercel.app/marketplace"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-900 px-5 py-2 rounded-full text-sm font-bold transition-colors"
+                >
+                  Browse AI Marketplace →
+                </a>
+                <a
+                  href="https://corporate-ai-solutions.vercel.app/studio/thesis"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-400 hover:text-amber-400 text-sm transition-colors"
+                >
+                  Learn More
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       )}
