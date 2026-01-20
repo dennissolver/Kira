@@ -24,6 +24,15 @@ import {
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://kira-rho.vercel.app';
 
+// ElevenLabs Voice & Model Configuration
+const ELEVENLABS_CONFIG = {
+  voice_id: 'EXAVITQu4vr4xnSDxMaL',  // Sarah - warm, friendly female voice
+  tts_model: 'eleven_turbo_v2',       // Optimized for real-time conversations
+  llm: 'gpt-4o-mini',                 // Fast, cost-effective LLM
+  temperature: 0.7,                    // Balanced creativity
+  max_duration_seconds: 3600,          // 1 hour max conversation
+};
+
 /* ------------------------------------------------------------------ */
 /* Logging helper                                                      */
 /* ------------------------------------------------------------------ */
@@ -168,7 +177,7 @@ export async function POST(req: NextRequest) {
     const agentName = generateAgentName(
       draft.journey_type,
       firstName,
-      draft.primary_objective, // Include topic in name
+      draft.primary_objective,
       user.id
     );
 
@@ -194,17 +203,18 @@ export async function POST(req: NextRequest) {
             agent: {
               prompt: {
                 prompt: systemPrompt,
-                llm: 'gpt-4o-mini',
-                temperature: 0.7,
+                llm: ELEVENLABS_CONFIG.llm,
+                temperature: ELEVENLABS_CONFIG.temperature,
               },
               first_message: firstMessage,
               language: 'en',
             },
             tts: {
-              voice_id: 'EXAVITQu4vr4xnSDxMaL',
+              model_id: ELEVENLABS_CONFIG.tts_model,
+              voice_id: ELEVENLABS_CONFIG.voice_id,
             },
             conversation: {
-              max_duration_seconds: 3600,
+              max_duration_seconds: ELEVENLABS_CONFIG.max_duration_seconds,
             },
           },
           platform_settings: {
@@ -248,7 +258,7 @@ export async function POST(req: NextRequest) {
       framework,
       draft_id: draftId,
       status: 'active',
-      voice_id: 'EXAVITQu4vr4xnSDxMaL',
+      voice_id: ELEVENLABS_CONFIG.voice_id,
     });
 
     if (agentError) {
