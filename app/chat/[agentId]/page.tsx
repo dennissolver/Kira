@@ -1,12 +1,87 @@
 // app/chat/[agentId]/page.tsx
 // Chat page with ElevenLabs voice widget
-// Includes close/pause and resume functionality
+// Includes: persistent bottom control bar, refer a friend, knowledge base upload
 
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useConversation } from '@elevenlabs/react';
+
+// Icons as inline SVGs to avoid lucide-react dependency issues
+const MicIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+  </svg>
+);
+
+const PauseIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const PlayIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const StopIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+  </svg>
+);
+
+const UploadIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+  </svg>
+);
+
+const GiftIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+  </svg>
+);
+
+const XIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+  </svg>
+);
+
+const FileIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+
+const LinkIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+  </svg>
+);
+
+const SendIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+  </svg>
+);
 
 interface ConversationContext {
   has_history: boolean;
@@ -37,6 +112,10 @@ export default function ChatPage() {
   const [transcript, setTranscript] = useState<
     Array<{ role: 'user' | 'assistant'; text: string }>
   >([]);
+
+  // Modal states
+  const [showReferModal, setShowReferModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   /* ---------------- ElevenLabs ---------------- */
 
@@ -128,24 +207,38 @@ export default function ChatPage() {
     }
   }, [agentInfo, conversation, isCallActive]);
 
-  /* ---------------- END/PAUSE CONVERSATION ---------------- */
+  /* ---------------- PAUSE CONVERSATION ---------------- */
+
+  const pauseConversation = async () => {
+    try {
+      await conversation.endSession();
+      setIsCallActive(false);
+      setIsPaused(true);
+    } catch (err) {
+      console.error('Error pausing conversation:', err);
+      setIsCallActive(false);
+      setIsPaused(true);
+    }
+  };
+
+  /* ---------------- END CONVERSATION ---------------- */
 
   const endConversation = async () => {
     try {
       await conversation.endSession();
       setIsCallActive(false);
-      setIsPaused(true); // Mark as paused so we show resume button
+      setIsPaused(false);
+      // Optionally redirect or reset
     } catch (err) {
       console.error('Error ending conversation:', err);
       setIsCallActive(false);
-      setIsPaused(true);
+      setIsPaused(false);
     }
   };
 
   /* ---------------- RESUME CONVERSATION ---------------- */
 
   const resumeConversation = async () => {
-    // Just start a new session - ElevenLabs will continue context
     await startConversation();
   };
 
@@ -210,114 +303,34 @@ export default function ChatPage() {
               {agentInfo?.agent_name || 'Kira'}
             </h1>
             <p className="text-sm text-gray-500">
-              {isCallActive ? 'Live conversation' : isPaused ? 'Paused' : 'Your AI companion'}
+              {isCallActive ? '🟢 Live conversation' : isPaused ? '⏸️ Paused' : 'Your AI companion'}
             </p>
           </div>
-
-          {/* Close/Pause Button - Always visible when call is active */}
-          {isCallActive && (
-            <button
-              onClick={endConversation}
-              className="p-3 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors"
-              title="End conversation"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
         </header>
 
-        {/* Main */}
+        {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto px-4 pb-4">
-          {/* Initial state - no conversation yet */}
+          {/* Welcome message when not started */}
           {!isCallActive && !isPaused && transcript.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
-              <div className="mb-8">
-                <h2 className="text-2xl font-bold text-gray-800 mb-2">Ready to chat?</h2>
-                <p className="text-gray-500">Click below to start talking with Kira</p>
-              </div>
-              <button
-                onClick={startConversation}
-                className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-3"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-                Start Talking
-              </button>
+              <img
+                src="/kira-avatar.jpg"
+                alt="Kira"
+                className="w-24 h-24 rounded-full object-cover shadow-xl mb-6"
+              />
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">Hey there! 👋</h2>
+              <p className="text-gray-500 mb-2">I'm Kira, your AI companion.</p>
+              <p className="text-gray-400 text-sm">Press <strong>Start Talking</strong> below to begin our conversation.</p>
             </div>
           )}
 
-          {/* Paused state - show resume button */}
-          {!isCallActive && isPaused && (
-            <div className="flex flex-col h-full">
-              {/* Show transcript history */}
-              {transcript.length > 0 && (
-                <div className="flex-1 space-y-4 py-4 mb-4">
-                  {transcript.map((msg, i) => (
-                    <div
-                      key={i}
-                      className={`flex ${
-                        msg.role === 'user' ? 'justify-end' : 'justify-start'
-                      }`}
-                    >
-                      <div
-                        className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
-                          msg.role === 'user'
-                            ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white'
-                            : 'bg-white text-gray-800'
-                        }`}
-                      >
-                        {msg.text}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Resume section */}
-              <div className="flex flex-col items-center justify-center py-8 border-t border-gray-200">
-                <div className="bg-amber-50 rounded-2xl p-6 text-center mb-6 max-w-sm">
-                  <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <p className="text-amber-800 font-medium">Conversation paused</p>
-                  <p className="text-amber-600 text-sm mt-1">Click below to continue where you left off</p>
-                </div>
-
-                <button
-                  onClick={resumeConversation}
-                  className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-3"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Resume Chat
-                </button>
-
-                <button
-                  onClick={() => window.location.href = '/'}
-                  className="mt-4 text-gray-500 hover:text-gray-700 text-sm transition-colors"
-                >
-                  ← Back to home
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Active conversation - show transcript */}
-          {isCallActive && (
+          {/* Transcript */}
+          {transcript.length > 0 && (
             <div className="space-y-4 py-4">
               {transcript.map((msg, i) => (
                 <div
                   key={i}
-                  className={`flex ${
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
-                  }`}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
                     className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
@@ -330,31 +343,565 @@ export default function ChatPage() {
                   </div>
                 </div>
               ))}
+
+              {/* Listening indicator */}
+              {isCallActive && (
+                <div className="flex justify-start">
+                  <div className="bg-white rounded-2xl px-4 py-3 shadow-sm flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                    <span className="text-sm text-gray-500">Listening...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Paused message */}
+          {isPaused && !isCallActive && (
+            <div className="flex justify-center my-4">
+              <div className="bg-amber-50 rounded-xl px-4 py-2 text-amber-700 text-sm">
+                Conversation paused — press Resume to continue
+              </div>
             </div>
           )}
         </main>
 
-        {/* Footer - listening indicator */}
-        {isCallActive && (
-          <footer className="p-4 border-t border-gray-100 bg-white/50 backdrop-blur-sm">
-            <div className="flex items-center justify-center gap-3">
-              <div className="flex gap-1">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-              </div>
-              <span className="text-sm text-gray-500">Listening...</span>
+        {/* ============================================
+            BOTTOM CONTROL BAR - Always Visible
+            ============================================ */}
+        <footer className="border-t border-gray-200 bg-white p-4 safe-area-pb">
+          {/* Main Control Buttons Row */}
+          <div className="flex items-center justify-center gap-3 mb-4">
+            {/* START Button - shown when not active and not paused */}
+            {!isCallActive && !isPaused && (
               <button
-                onClick={endConversation}
-                className="ml-4 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-sm font-medium transition-colors flex items-center gap-2"
+                onClick={startConversation}
+                className="flex-1 max-w-xs py-4 px-6 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Pause
+                <MicIcon />
+                <span>Start Talking</span>
+              </button>
+            )}
+
+            {/* PAUSE Button - shown when call is active */}
+            {isCallActive && (
+              <>
+                <button
+                  onClick={pauseConversation}
+                  className="flex-1 max-w-[150px] py-4 px-4 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-2xl font-semibold transition-all flex items-center justify-center gap-2"
+                >
+                  <PauseIcon />
+                  <span>Pause</span>
+                </button>
+
+                <button
+                  onClick={endConversation}
+                  className="flex-1 max-w-[150px] py-4 px-4 bg-red-100 hover:bg-red-200 text-red-600 rounded-2xl font-semibold transition-all flex items-center justify-center gap-2"
+                >
+                  <StopIcon />
+                  <span>End</span>
+                </button>
+              </>
+            )}
+
+            {/* RESUME Button - shown when paused */}
+            {!isCallActive && isPaused && (
+              <>
+                <button
+                  onClick={resumeConversation}
+                  className="flex-1 max-w-xs py-4 px-6 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-2xl font-semibold shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
+                >
+                  <PlayIcon />
+                  <span>Resume Chat</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Secondary Actions Row */}
+          <div className="flex items-center justify-center gap-4 pt-2 border-t border-gray-100">
+            {/* Upload Knowledge */}
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"
+            >
+              <UploadIcon />
+              <span className="text-sm font-medium">Add Knowledge</span>
+            </button>
+
+            <div className="w-px h-6 bg-gray-200"></div>
+
+            {/* Refer a Friend */}
+            <button
+              onClick={() => setShowReferModal(true)}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
+            >
+              <GiftIcon />
+              <span className="text-sm font-medium">Share Kira</span>
+            </button>
+          </div>
+        </footer>
+      </div>
+
+      {/* ============ REFER A FRIEND MODAL ============ */}
+      <ReferModal
+        isOpen={showReferModal}
+        onClose={() => setShowReferModal(false)}
+        userId={agentInfo?.user_id}
+      />
+
+      {/* ============ UPLOAD KNOWLEDGE MODAL ============ */}
+      <UploadKnowledgeModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        agentId={agentId}
+        userId={agentInfo?.user_id}
+      />
+    </div>
+  );
+}
+
+/* ================================================================
+   REFER A FRIEND MODAL
+   ================================================================ */
+
+function ReferModal({
+  isOpen,
+  onClose,
+  userId
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  userId?: string;
+}) {
+  const [formData, setFormData] = useState({
+    yourName: '',
+    yourEmail: '',
+    friendEmail: '',
+  });
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus('sending');
+    setErrorMessage('');
+
+    try {
+      const response = await fetch('/api/refer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          referrerId: userId,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to send referral');
+      }
+
+      setStatus('sent');
+
+      setTimeout(() => {
+        onClose();
+        setStatus('idle');
+        setFormData({ yourName: '', yourEmail: '', friendEmail: '' });
+      }, 3000);
+    } catch (err) {
+      setStatus('error');
+      setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 relative">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition"
+        >
+          <XIcon />
+        </button>
+
+        {status === 'sent' ? (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckIcon />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Invite sent! 🎉
+            </h3>
+            <p className="text-gray-600">
+              Your friend will receive an email from you shortly.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <GiftIcon />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-1">
+                Share Kira with a friend
+              </h3>
+              <p className="text-gray-600 text-sm">
+                Think a friend could use a helpful guide? Send them an invite.
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="yourName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Your name
+                </label>
+                <input
+                  type="text"
+                  id="yourName"
+                  required
+                  value={formData.yourName}
+                  onChange={(e) => setFormData(prev => ({ ...prev, yourName: e.target.value }))}
+                  placeholder="Your name"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500 transition"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="yourEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                  Your email
+                </label>
+                <input
+                  type="email"
+                  id="yourEmail"
+                  required
+                  value={formData.yourEmail}
+                  onChange={(e) => setFormData(prev => ({ ...prev, yourEmail: e.target.value }))}
+                  placeholder="you@example.com"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500 transition"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="friendEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                  Friend's email
+                </label>
+                <input
+                  type="email"
+                  id="friendEmail"
+                  required
+                  value={formData.friendEmail}
+                  onChange={(e) => setFormData(prev => ({ ...prev, friendEmail: e.target.value }))}
+                  placeholder="friend@example.com"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/50 focus:border-rose-500 transition"
+                />
+              </div>
+
+              {status === 'error' && (
+                <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                  {errorMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={status === 'sending'}
+                className="w-full bg-gradient-to-r from-rose-500 to-orange-500 text-white py-3 rounded-xl font-medium hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {status === 'sending' ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <SendIcon />
+                    Send Invite
+                  </>
+                )}
+              </button>
+            </form>
+
+            <p className="text-xs text-gray-400 text-center mt-4">
+              We'll send them one friendly email. No spam, ever.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   UPLOAD KNOWLEDGE MODAL
+   ================================================================ */
+
+function UploadKnowledgeModal({
+  isOpen,
+  onClose,
+  agentId,
+  userId,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  agentId: string;
+  userId?: string;
+}) {
+  const [activeTab, setActiveTab] = useState<'files' | 'urls'>('files');
+  const [files, setFiles] = useState<File[]>([]);
+  const [urls, setUrls] = useState<string[]>(['']);
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      setFiles(prev => [...prev, ...newFiles]);
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const addUrlField = () => {
+    setUrls(prev => [...prev, '']);
+  };
+
+  const updateUrl = (index: number, value: string) => {
+    setUrls(prev => prev.map((url, i) => i === index ? value : url));
+  };
+
+  const removeUrl = (index: number) => {
+    setUrls(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async () => {
+    setUploading(true);
+    setStatus('idle');
+    setErrorMessage('');
+
+    try {
+      const formData = new FormData();
+      formData.append('agentId', agentId);
+      if (userId) formData.append('userId', userId);
+
+      files.forEach(file => {
+        formData.append('files', file);
+      });
+
+      const validUrls = urls.filter(url => url.trim());
+      if (validUrls.length > 0) {
+        formData.append('urls', JSON.stringify(validUrls));
+      }
+
+      const response = await fetch('/api/kira/knowledge/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setStatus('success');
+
+      setTimeout(() => {
+        setFiles([]);
+        setUrls(['']);
+        setStatus('idle');
+        onClose();
+      }, 2000);
+    } catch (err) {
+      setStatus('error');
+      setErrorMessage(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const hasContent = files.length > 0 || urls.some(url => url.trim());
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-3xl shadow-xl max-w-lg w-full p-6 relative max-h-[90vh] overflow-y-auto">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition"
+        >
+          <XIcon />
+        </button>
+
+        {status === 'success' ? (
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckIcon />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+              Knowledge added! 🧠
+            </h3>
+            <p className="text-gray-600">
+              Kira will use this to give you better advice.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <UploadIcon />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-1">
+                Add to Kira's knowledge
+              </h3>
+              <p className="text-gray-600 text-sm">
+                Share files or links to help Kira understand your situation better.
+              </p>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setActiveTab('files')}
+                className={`flex-1 py-2 px-4 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 ${
+                  activeTab === 'files'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <FileIcon />
+                Files
+              </button>
+              <button
+                onClick={() => setActiveTab('urls')}
+                className={`flex-1 py-2 px-4 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2 ${
+                  activeTab === 'urls'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <LinkIcon />
+                URLs
               </button>
             </div>
-          </footer>
+
+            {/* Files Tab */}
+            {activeTab === 'files' && (
+              <div className="space-y-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.txt,.md,.csv,.xls,.xlsx"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-gray-300 hover:bg-gray-50 transition"
+                >
+                  <UploadIcon />
+                  <p className="text-sm text-gray-600 mt-2">Click to upload files</p>
+                  <p className="text-xs text-gray-400 mt-1">PDF, Word, Excel, TXT, CSV</p>
+                </button>
+
+                {files.length > 0 && (
+                  <div className="space-y-2">
+                    {files.map((file, i) => (
+                      <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <FileIcon />
+                          <span className="text-sm text-gray-700 truncate max-w-[200px]">{file.name}</span>
+                          <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
+                        </div>
+                        <button onClick={() => removeFile(i)} className="text-gray-400 hover:text-red-500">
+                          <XIcon />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* URLs Tab */}
+            {activeTab === 'urls' && (
+              <div className="space-y-3">
+                {urls.map((url, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      type="url"
+                      value={url}
+                      onChange={(e) => updateUrl(i, e.target.value)}
+                      placeholder="https://example.com/resource"
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition text-sm"
+                    />
+                    {urls.length > 1 && (
+                      <button
+                        onClick={() => removeUrl(i)}
+                        className="p-2.5 text-gray-400 hover:text-red-500 transition"
+                      >
+                        <XIcon />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                <button
+                  onClick={addUrlField}
+                  className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition"
+                >
+                  <PlusIcon />
+                  Add another URL
+                </button>
+              </div>
+            )}
+
+            {status === 'error' && (
+              <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg mt-4">
+                {errorMessage}
+              </div>
+            )}
+
+            <button
+              onClick={handleSubmit}
+              disabled={uploading || !hasContent}
+              className="w-full mt-6 bg-gradient-to-r from-rose-500 to-orange-500 text-white py-3 rounded-xl font-medium hover:opacity-90 transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {uploading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <UploadIcon />
+                  Add to Knowledge Base
+                </>
+              )}
+            </button>
+
+            <p className="text-xs text-gray-400 text-center mt-4">
+              Files are processed securely and used only to help Kira assist you better.
+            </p>
+          </>
         )}
       </div>
     </div>
