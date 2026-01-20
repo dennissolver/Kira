@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       agentName,
     });
 
-    /* ---------------- ELEVENLABS (CORRECTED STRUCTURE) ---------------- */
+    /* ---------------- ELEVENLABS (MINIMAL CONFIG - USE DEFAULTS) ---------------- */
     await log(supabase, requestId, 'elevenlabs_create', 'start');
 
     const elevenRes = await fetch(
@@ -162,19 +162,18 @@ export async function POST(req: NextRequest) {
           conversation_config: {
             agent: {
               prompt: {
-                prompt: systemPrompt,        // ✅ Correct: "prompt" not "system"
-                llm: 'gpt-4o-mini',           // ✅ Added LLM specification
+                prompt: systemPrompt,
+                llm: 'gpt-4o-mini',
                 temperature: 0.7,
               },
-              first_message: firstMessage,   // ✅ Correct: at agent level, not inside prompt
+              first_message: firstMessage,
               language: 'en',
             },
             tts: {
-              voice_id: 'EXAVITQu4vr4xnSDxMaL',  // ✅ Correct: voice_id in tts block
-              model_id: 'eleven_turbo_v2_5',
+              voice_id: 'EXAVITQu4vr4xnSDxMaL',
             },
           },
-          platform_settings: {               // ✅ Correct: webhook in platform_settings
+          platform_settings: {
             webhook: {
               url: `${APP_URL}/api/webhooks/elevenlabs-router`,
               events: ['conversation.transcript', 'conversation.ended'],
