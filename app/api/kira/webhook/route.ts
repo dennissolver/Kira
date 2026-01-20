@@ -126,10 +126,10 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // Find the agent in our database
+    // Find the agent in our database - include all fields we need
     const { data: agent, error: agentError } = await supabase
       .from('kira_agents')
-      .select('id, user_id, agent_name')
+      .select('id, user_id, agent_name, total_conversations, total_minutes')
       .eq('elevenlabs_agent_id', agent_id)
       .single();
 
@@ -191,11 +191,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Update agent stats
+      const currentConversations = agent.total_conversations || 0;
+      const currentMinutes = agent.total_minutes || 0;
+
       await supabase
         .from('kira_agents')
         .update({
-          total_conversations: agent.total_conversations + 1,
-          total_minutes: agent.total_minutes + Math.ceil((metadata?.call_duration_secs || 0) / 60),
+          total_conversations: currentConversations + 1,
+          total_minutes: currentMinutes + Math.ceil((metadata?.call_duration_secs || 0) / 60),
           last_conversation_at: new Date().toISOString(),
         })
         .eq('id', agent.id);
