@@ -1,6 +1,6 @@
 // app/chat/[agentId]/page.tsx
 // Beautiful chat page with ElevenLabs voice widget
-// ORIGINAL UI + MINIMAL MIC FIX
+// ORIGINAL UI + PRODUCTION-SAFE SIGNED URL FLOW
 
 'use client';
 
@@ -8,18 +8,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useConversation } from '@elevenlabs/react';
 
-interface Message {
-  id?: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp?: string;
-}
-
 interface ConversationContext {
   has_history: boolean;
   last_topic?: string;
   suggested_greeting?: string;
-  time_gap_seconds?: number;
 }
 
 interface AgentInfo {
@@ -28,6 +20,7 @@ interface AgentInfo {
   agent_name: string;
   journey_type: string;
   status: string;
+  elevenlabs_agent_id: string; // 🔑 REQUIRED
 }
 
 export default function ChatPage() {
@@ -38,8 +31,8 @@ export default function ChatPage() {
   const [context, setContext] = useState<ConversationContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [isCallActive, setIsCallActive] = useState(false);
+
   const [transcript, setTranscript] = useState<
     Array<{ role: 'user' | 'assistant'; text: string }>
   >([]);
@@ -47,12 +40,8 @@ export default function ChatPage() {
   /* ---------------- ElevenLabs ---------------- */
 
   const conversation = useConversation({
-    onConnect: () => {
-      setIsCallActive(true);
-    },
-    onDisconnect: () => {
-      setIsCallActive(false);
-    },
+    onConnect: () => setIsCallActive(true),
+    onDisconnect: () => setIsCallActive(false),
     onMessage: (message) => {
       if (message?.message) {
         setTranscript((prev) => [
@@ -65,7 +54,7 @@ export default function ChatPage() {
       }
     },
     onError: () => {
-      setError('Voice connection error. Please try again.');
+      setError('Voice connection failed. Please try again.');
     },
   });
 
@@ -88,7 +77,7 @@ export default function ChatPage() {
           const ctx: ConversationContext = await ctxRes.json();
           setContext(ctx);
         }
-      } catch (err) {
+      } catch {
         setError('Failed to load agent');
       } finally {
         setLoading(false);
@@ -98,47 +87,46 @@ export default function ChatPage() {
     if (agentId) loadData();
   }, [agentId]);
 
-  /* ---------------- START CONVERSATION (MINIMAL FIX) ---------------- */
-  /* This matches Agent Interviews behaviour exactly */
+  /* ---------------- START CONVERSATION (PRODUCTION FIX) ---------------- */
 
   const startConversation = useCallback(async () => {
-    if (isCallActive) return;
+    if (!agentInfo || isCallActive) return;
 
     try {
       setError(null);
 
-      // 🔑 MIC PRIME — REQUIRED FOR WINDOWS + THIS SDK
+      // 🔑 REQUIRED: mic prime inside user gesture
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const greeting = context?.has_history
-        ? context.suggested_greeting ||
-          (context.last_topic
-            ? `Welcome back. Last time we talked about ${context.last_topic}.`
-            : 'Welcome back.')
-        : `Hey there! I'm ${agentInfo?.agent_name || 'Kira'}.`;
-
-      await conversation.startSession({
-        agentId,
-        connectionType: 'webrtc',
-        overrides: {
-          agent: {
-            firstMessage: greeting,
-          },
-        },
+      // 🔑 Ask backend for signed URL (NO ElevenLabs in browser)
+      const res = await fetch('/api/kira/chat/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: agentInfo.elevenlabs_agent_id,
+        }),
       });
+
+      if (!res.ok) {
+        throw new Error('Failed to start voice session');
+      }
+
+      const { signedUrl } = await res.json();
+
+      await conversation.startSession({ signedUrl });
     } catch {
       setError(
-        'Microphone blocked. Click the lock icon in your browser and allow microphone access.'
+        'Unable to start voice session. Please check microphone permissions and try again.'
       );
     }
-  }, [agentId, agentInfo, context, conversation, isCallActive]);
+  }, [agentInfo, conversation, isCallActive]);
 
   const endConversation = async () => {
     await conversation.endSession();
     setIsCallActive(false);
   };
 
-  /* ---------------- UI (ORIGINAL, UNTOUCHED) ---------------- */
+  /* ---------------- UI (ORIGINAL, PRESERVED) ---------------- */
 
   if (loading) {
     return (
