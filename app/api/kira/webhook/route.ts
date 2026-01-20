@@ -1,5 +1,5 @@
 // app/api/kira/webhook/route.ts
-// Handles ElevenLabs conversation webhooks (conversation end, transcript, etc.)
+// Handles ElevenLabs post-call webhooks (conversation transcription, etc.)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -7,15 +7,46 @@ import crypto from 'crypto';
 
 const WEBHOOK_SECRET = process.env.ELEVENLABS_WEBHOOK_SECRET!;
 
-interface WebhookPayload {
-  type: 'conversation.started' | 'conversation.ended' | 'conversation.transcript';
-  conversation_id: string;
-  agent_id: string;
-  data?: {
-    transcript?: Array<{ role: string; message: string; timestamp: number }>;
-    transcript_text?: string;
-    duration_seconds?: number;
-    status?: string;
+// ElevenLabs post-call webhook payload structure
+// Matches the GET /v1/convai/conversations/:conversation_id response
+interface ElevenLabsWebhookPayload {
+  type: string; // e.g., "post_call_transcription"
+  event_timestamp?: number;
+  data: {
+    agent_id: string;
+    conversation_id: string;
+    status: 'initiated' | 'in-progress' | 'processing' | 'done' | 'failed';
+    transcript: Array<{
+      role: 'user' | 'agent';
+      message: string;
+      tool_call?: unknown;
+      tool_result?: unknown;
+      time_in_call_secs: number;
+      end_time_in_call_secs?: number;
+    }>;
+    metadata: {
+      start_time_unix_secs: number;
+      end_time_unix_secs?: number;
+      call_duration_secs: number;
+      cost?: number;
+      deletion_settings?: unknown;
+      feedback?: unknown;
+      authorization_method?: string;
+      charging?: unknown;
+      termination_reason?: string;
+    };
+    analysis?: {
+      evaluation_criteria_results?: Record<string, unknown>;
+      data_collection_results?: Record<string, unknown>;
+      call_successful?: string;
+      transcript_summary?: string;
+    };
+    has_audio?: boolean;
+    has_user_audio?: boolean;
+    has_response_audio?: boolean;
+    conversation_initiation_client_data?: {
+      dynamic_variables?: Record<string, string>;
+    };
   };
 }
 
@@ -67,86 +98,125 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const payload = JSON.parse(rawBody) as WebhookPayload;
-    const { type, conversation_id, agent_id, data } = payload;
+    const payload = JSON.parse(rawBody) as ElevenLabsWebhookPayload;
 
-    console.log(`[kira/webhook] Received: ${type} for conversation ${conversation_id}`);
+    // Log the full payload structure for debugging
+    console.log(`[kira/webhook] Received event type: ${payload.type}`);
+    console.log(`[kira/webhook] Payload keys: ${Object.keys(payload).join(', ')}`);
 
-    const supabase = createServiceClient();
+    // Extract data from the correct location
+    const { type, data } = payload;
 
-    // Find the agent
-    const { data: agent } = await supabase
-      .from('kira_agents')
-      .select('id, user_id')
-      .eq('elevenlabs_agent_id', agent_id)
-      .single();
-
-    if (!agent) {
-      console.warn(`[kira/webhook] Agent not found: ${agent_id}`);
+    if (!data) {
+      console.warn('[kira/webhook] No data in payload');
       return NextResponse.json({ received: true });
     }
 
-    switch (type) {
-      case 'conversation.started':
-        // Create or update conversation record
-        await supabase
-          .from('conversations')
-          .upsert({
-            elevenlabs_conversation_id: conversation_id,
-            user_id: agent.user_id,
-            kira_agent_id: agent.id,
-            status: 'active',
-            started_at: new Date().toISOString(),
-          }, {
-            onConflict: 'elevenlabs_conversation_id',
-          });
-        break;
+    const {
+      agent_id,
+      conversation_id,
+      status,
+      transcript,
+      metadata,
+      analysis,
+      conversation_initiation_client_data
+    } = data;
 
-      case 'conversation.ended':
-        // Update conversation with final data
-        const updateData: Record<string, unknown> = {
-          status: 'completed',
-          ended_at: new Date().toISOString(),
-        };
+    console.log(`[kira/webhook] Received: ${type} for conversation ${conversation_id}, agent ${agent_id}`);
 
-        if (data?.duration_seconds) {
-          updateData.duration_seconds = data.duration_seconds;
-        }
+    const supabase = createServiceClient();
 
-        if (data?.transcript_text) {
-          updateData.transcript_text = data.transcript_text;
-        }
+    // Find the agent in our database
+    const { data: agent, error: agentError } = await supabase
+      .from('kira_agents')
+      .select('id, user_id, agent_name')
+      .eq('elevenlabs_agent_id', agent_id)
+      .single();
 
-        if (data?.transcript) {
-          updateData.transcript_json = data.transcript;
+    if (agentError || !agent) {
+      console.warn(`[kira/webhook] Agent not found: ${agent_id}`);
+      // Still return 200 to prevent webhook from being disabled
+      return NextResponse.json({ received: true, warning: 'Agent not found' });
+    }
 
-          // Extract topics from transcript for memory/continuity
-          const topics = extractTopics(data.transcript);
-          if (topics.length > 0) {
-            updateData.topics = topics;
-          }
-        }
+    console.log(`[kira/webhook] Found agent: ${agent.agent_name} (${agent.id})`);
 
-        await supabase
-          .from('conversations')
-          .update(updateData)
-          .eq('elevenlabs_conversation_id', conversation_id);
+    // Handle different webhook types
+    if (type === 'post_call_transcription') {
+      // Build transcript text from transcript array
+      const transcriptText = transcript
+        ?.map(t => `${t.role === 'user' ? 'User' : 'Kira'}: ${t.message}`)
+        .join('\n') || '';
 
-        console.log(`[kira/webhook] Conversation ${conversation_id} completed (${data?.duration_seconds}s)`);
-        break;
+      // Extract topics from transcript
+      const topics = extractTopics(transcript || []);
 
-      case 'conversation.transcript':
-        // Partial transcript update (if needed)
-        if (data?.transcript_text) {
-          await supabase
-            .from('conversations')
-            .update({ transcript_text: data.transcript_text })
-            .eq('elevenlabs_conversation_id', conversation_id);
-        }
-        break;
+      // Get user_id from dynamic variables if available
+      const dynamicUserId = conversation_initiation_client_data?.dynamic_variables?.user_id;
 
-      default:
-        console.log(`[kira/webhook] Unhandled event type: ${type}`);
+      // Upsert conversation record
+      const conversationData = {
+        elevenlabs_conversation_id: conversation_id,
+        kira_agent_id: agent.id,
+        user_id: dynamicUserId || agent.user_id,
+        status: status === 'done' ? 'completed' : status,
+        started_at: metadata?.start_time_unix_secs
+          ? new Date(metadata.start_time_unix_secs * 1000).toISOString()
+          : new Date().toISOString(),
+        ended_at: metadata?.end_time_unix_secs
+          ? new Date(metadata.end_time_unix_secs * 1000).toISOString()
+          : new Date().toISOString(),
+        duration_seconds: metadata?.call_duration_secs || 0,
+        transcript_text: transcriptText,
+        transcript_json: transcript,
+        topics: topics.length > 0 ? topics : null,
+        summary: analysis?.transcript_summary || null,
+        metadata: {
+          cost: metadata?.cost,
+          termination_reason: metadata?.termination_reason,
+          analysis: analysis,
+        },
+      };
+
+      const { error: upsertError } = await supabase
+        .from('kira_conversations')
+        .upsert(conversationData, {
+          onConflict: 'elevenlabs_conversation_id',
+        });
+
+      if (upsertError) {
+        console.error('[kira/webhook] Error saving conversation:', upsertError);
+      } else {
+        console.log(`[kira/webhook] Conversation saved: ${conversation_id} (${metadata?.call_duration_secs}s)`);
+      }
+
+      // Update agent stats
+      await supabase
+        .from('kira_agents')
+        .update({
+          total_conversations: agent.total_conversations + 1,
+          total_minutes: agent.total_minutes + Math.ceil((metadata?.call_duration_secs || 0) / 60),
+          last_conversation_at: new Date().toISOString(),
+        })
+        .eq('id', agent.id);
+
+      // Save individual messages to kira_messages table
+      if (transcript && transcript.length > 0) {
+        const messages = transcript.map((t, index) => ({
+          kira_conversation_id: conversation_id, // Will need to update after getting actual conversation ID
+          role: t.role,
+          content: t.message,
+          timestamp_in_call: t.time_in_call_secs,
+          sequence_number: index,
+        }));
+
+        // Note: You may need to adjust this based on your kira_messages table structure
+        // const { error: messagesError } = await supabase
+        //   .from('kira_messages')
+        //   .insert(messages);
+
+        console.log(`[kira/webhook] Would save ${messages.length} messages`);
+      }
     }
 
     return NextResponse.json({ received: true });
@@ -171,6 +241,10 @@ function extractTopics(transcript: Array<{ role: string; message: string }>): st
     /write (?:a |an )?(email|message|letter|post)/gi,
     /(job|career|work|business|project|strategy)/gi,
     /(relationship|family|friend)/gi,
+    /(travel|flight|hotel|vacation)/gi,
+    /(learn|study|course|skill)/gi,
+    /(health|fitness|exercise|diet)/gi,
+    /(finance|money|budget|invest)/gi,
   ];
 
   for (const entry of transcript) {
