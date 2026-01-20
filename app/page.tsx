@@ -79,6 +79,16 @@ export default function KiraLandingPage() {
         .fun-border { border: 3px solid transparent; background: linear-gradient(white, white) padding-box, linear-gradient(135deg, #fbbf24 0%, #f472b6 50%, #a78bfa 100%) border-box; }
         .cas-badge { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); transition: all 0.3s ease; }
         .cas-badge:hover { background: linear-gradient(135deg, #334155 0%, #475569 100%); }
+        
+        .journey-card { transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .journey-card:hover { transform: translateY(-8px) scale(1.02); }
+        
+        .step-connector { position: relative; }
+        .step-connector::after {
+          content: ''; position: absolute; top: 50%; right: -2rem; width: 4rem; height: 3px;
+          background: linear-gradient(90deg, #fbbf24, #f472b6); border-radius: 2px;
+        }
+        @media (max-width: 768px) { .step-connector::after { display: none; } }
       `}</style>
 
       {/* Navigation */}
@@ -108,7 +118,7 @@ export default function KiraLandingPage() {
         </div>
       </nav>
 
-      {/* Hero Section */}
+      {/* Hero Section - Updated messaging */}
       <section className="gradient-hero min-h-screen flex items-center justify-center relative pt-20">
         <div className="blob-1 -top-20 -left-40 opacity-60" />
         <div className="blob-2 top-1/3 -right-20 opacity-50" />
@@ -135,32 +145,36 @@ export default function KiraLandingPage() {
 
             <h1 className={`font-display text-5xl lg:text-7xl font-bold text-stone-800 mb-6 leading-tight ${isVisible ? 'fade-up fade-up-delay-1' : 'opacity-0'}`}>
               Meet <span className="bg-gradient-to-r from-amber-500 via-pink-500 to-violet-500 bg-clip-text text-transparent">Kira</span>
-              <br /><span className="text-4xl lg:text-5xl">Your guide through... whatever it is.</span>
+              <br /><span className="text-3xl lg:text-4xl text-stone-600">Then meet <span className="bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent">YOUR</span> Kira.</span>
             </h1>
 
             <p className={`font-body text-xl lg:text-2xl text-stone-600 max-w-2xl mx-auto mb-10 leading-relaxed ${isVisible ? 'fade-up fade-up-delay-2' : 'opacity-0'}`}>
-              She's not a magic answer machine. She's a thinking partner who asks questions, pushes back, and actually helps you figure things out.
+              Not one AI for everyone. A unique thinking partner <span className="font-semibold text-stone-800">built around your specific goal</span> — whether that's figuring out your career, planning a trip, or growing your business.
             </p>
 
             <div className={`flex flex-col sm:flex-row items-center justify-center gap-4 ${isVisible ? 'fade-up fade-up-delay-3' : 'opacity-0'}`}>
-              <a href="/start" className="font-display gradient-coral text-white px-8 py-4 rounded-full text-lg font-bold hover-pop shadow-xl shadow-pink-200 inline-block">Start Talking to Kira →</a>
-              <span className="font-body text-stone-500">Free for 30 days. No credit card.</span>
+              <a href="/start" className="font-display gradient-coral text-white px-8 py-4 rounded-full text-lg font-bold hover-pop shadow-xl shadow-pink-200 inline-block">Create Your Kira →</a>
+              <span className="font-body text-stone-500">Free for 30 days. Takes 2 minutes.</span>
             </div>
           </div>
 
+          {/* Updated chat preview showing the journey */}
           <div className={`mt-16 max-w-lg mx-auto ${isVisible ? 'fade-up fade-up-delay-3' : 'opacity-0'}`}>
             <div className="bg-white/80 backdrop-blur rounded-3xl p-6 shadow-2xl border border-amber-100">
+              <div className="text-center mb-4">
+                <span className="text-xs font-body text-stone-400 bg-stone-100 px-3 py-1 rounded-full">Setup Kira learning about you...</span>
+              </div>
               <div className="space-y-4">
                 <div className="flex gap-3">
                   <div className="avatar-ring flex-shrink-0"><div className="w-8 h-8 rounded-full overflow-hidden bg-white"><img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full object-cover" /></div></div>
-                  <div className="chat-bubble-kira rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs"><p className="font-body text-stone-700 text-sm">Hey! What's on your mind today? 💭</p></div>
+                  <div className="chat-bubble-kira rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs"><p className="font-body text-stone-700 text-sm">Hey! I'm Kira. What's the one thing you're trying to figure out right now? 🎯</p></div>
                 </div>
                 <div className="flex gap-3 justify-end">
-                  <div className="chat-bubble-user rounded-2xl rounded-tr-sm px-4 py-3 max-w-xs"><p className="font-body text-white text-sm">I need to make a decision about my job...</p></div>
+                  <div className="chat-bubble-user rounded-2xl rounded-tr-sm px-4 py-3 max-w-xs"><p className="font-body text-white text-sm">I want to finally get my finances sorted out...</p></div>
                 </div>
                 <div className="flex gap-3">
                   <div className="avatar-ring flex-shrink-0"><div className="w-8 h-8 rounded-full overflow-hidden bg-white"><img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full object-cover" /></div></div>
-                  <div className="chat-bubble-kira rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs"><p className="font-body text-stone-700 text-sm">Okay, let's think through this together. What's making the decision hard?</p></div>
+                  <div className="chat-bubble-kira rounded-2xl rounded-tl-sm px-4 py-3 max-w-xs"><p className="font-body text-stone-700 text-sm">Got it. I'm creating a Kira just for this — she'll know your context and be ready to dig in with you. ✨</p></div>
                 </div>
               </div>
             </div>
@@ -168,87 +182,169 @@ export default function KiraLandingPage() {
         </div>
       </section>
 
-      {/* The Real Deal Section */}
+      {/* The Unique Approach */}
       <section className="bg-white py-24">
-        <div className="max-w-4xl mx-auto px-6">
+        <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16">
-            <span className="text-5xl mb-4 block">🤝</span>
-            <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">Here's the deal.</h2>
-            <p className="font-body text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">Kira's not going to pretend she has all the answers. She doesn't. Nobody does.</p>
+            <span className="text-5xl mb-4 block">✨</span>
+            <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">Every Kira is <span className="bg-gradient-to-r from-amber-500 to-pink-500 bg-clip-text text-transparent">different.</span></h2>
+            <p className="font-body text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">Because every person is different. And every goal deserves its own dedicated guide.</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 mb-16">
+            <div className="bg-gradient-to-br from-rose-50 to-pink-100 rounded-3xl p-8 border-2 border-rose-200">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-3xl">❌</span>
+                <h3 className="font-display text-xl font-bold text-stone-800">Other AI assistants</h3>
+              </div>
+              <ul className="font-body text-stone-600 space-y-3">
+                <li className="flex items-start gap-2"><span className="text-rose-400">•</span> Same generic AI for everyone</li>
+                <li className="flex items-start gap-2"><span className="text-rose-400">•</span> You repeat context every conversation</li>
+                <li className="flex items-start gap-2"><span className="text-rose-400">•</span> Tries to answer everything instantly</li>
+                <li className="flex items-start gap-2"><span className="text-rose-400">•</span> No memory of what matters to you</li>
+              </ul>
+            </div>
+            <div className="bg-gradient-to-br from-amber-50 to-yellow-100 rounded-3xl p-8 border-2 border-amber-300">
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-3xl">✨</span>
+                <h3 className="font-display text-xl font-bold text-stone-800">Your personal Kira</h3>
+              </div>
+              <ul className="font-body text-stone-700 space-y-3">
+                <li className="flex items-start gap-2"><span className="text-amber-500">•</span> <strong>Built around YOUR specific goal</strong></li>
+                <li className="flex items-start gap-2"><span className="text-amber-500">•</span> Knows your context from day one</li>
+                <li className="flex items-start gap-2"><span className="text-amber-500">•</span> Asks questions before jumping to answers</li>
+                <li className="flex items-start gap-2"><span className="text-amber-500">•</span> Remembers and builds on every conversation</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Choose Your Journey */}
+      <section className="bg-gradient-to-br from-violet-100 via-pink-50 to-amber-50 py-24">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <span className="text-5xl mb-4 block">🛤️</span>
+            <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">Two journeys. <span className="bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent">One guide.</span></h2>
+            <p className="font-body text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">Whether it's personal growth or business strategy, Kira adapts to what you need.</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8">
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-3xl p-8 hover-pop">
-              <div className="text-4xl mb-4">💡</div>
-              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">She asks questions</h3>
-              <p className="font-body text-stone-600 leading-relaxed">Before jumping to solutions, Kira figures out what you actually need. Sometimes that's the whole point.</p>
+            <div className="journey-card bg-white rounded-3xl p-8 shadow-xl border-2 border-violet-200 hover:border-violet-400">
+              <div className="w-16 h-16 gradient-lavender rounded-2xl flex items-center justify-center mb-6 text-3xl">🧘</div>
+              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">Personal Journey</h3>
+              <p className="font-body text-stone-600 mb-6">Life decisions, career moves, habits, relationships, travel planning, learning new skills — the stuff that matters to YOU.</p>
+              <div className="space-y-2">
+                {["Career pivots & job decisions", "Financial planning", "Learning & skill building", "Travel & life experiences", "Personal projects"].map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm font-body text-stone-600">
+                    <span className="text-violet-500">✓</span> {item}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="bg-gradient-to-br from-pink-50 to-rose-50 rounded-3xl p-8 hover-pop">
-              <div className="text-4xl mb-4">🔄</div>
-              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">She pushes back</h3>
-              <p className="font-body text-stone-600 leading-relaxed">If something's unclear or you're missing context, she'll say so. That's not being difficult — that's being useful.</p>
-            </div>
-            <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-3xl p-8 hover-pop">
-              <div className="text-4xl mb-4">🎯</div>
-              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">She learns you</h3>
-              <p className="font-body text-stone-600 leading-relaxed">The more you talk, the more context she has. She remembers what matters to you and builds on it.</p>
-            </div>
-            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-3xl p-8 hover-pop">
-              <div className="text-4xl mb-4">✋</div>
-              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">She owns mistakes</h3>
-              <p className="font-body text-stone-600 leading-relaxed">When she gets it wrong (she will sometimes), tell her. She'll adjust and do better. That's how this works.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Two-Way Street */}
-      <section className="bg-gradient-to-br from-violet-100 via-pink-50 to-amber-50 py-24">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <span className="text-5xl mb-6 block">↔️</span>
-          <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">This is a <span className="bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent">two-way</span> thing.</h2>
-          <p className="font-body text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed mb-12">Kira does her best with what she knows. But she needs you to show up too.</p>
-
-          <div className="grid md:grid-cols-3 gap-6 text-left">
-            <div className="bg-white rounded-2xl p-6 shadow-sm">
-              <div className="text-2xl mb-3">🗣️</div>
-              <h3 className="font-display font-bold text-stone-800 mb-2">Be honest</h3>
-              <p className="font-body text-stone-600 text-sm">Tell her what's really going on. The more context, the better she can help.</p>
-            </div>
-            <div className="bg-white rounded-2xl p-6 shadow-sm">
-              <div className="text-2xl mb-3">🔧</div>
-              <h3 className="font-display font-bold text-stone-800 mb-2">Correct her</h3>
-              <p className="font-body text-stone-600 text-sm">If she's off, say so. She'll adjust. That's not rude — it's helpful.</p>
-            </div>
-            <div className="bg-white rounded-2xl p-6 shadow-sm">
-              <div className="text-2xl mb-3">🤔</div>
-              <h3 className="font-display font-bold text-stone-800 mb-2">Think with her</h3>
-              <p className="font-body text-stone-600 text-sm">She's a guide, not a genie. The best results come from working together.</p>
+            <div className="journey-card bg-white rounded-3xl p-8 shadow-xl border-2 border-amber-200 hover:border-amber-400">
+              <div className="w-16 h-16 gradient-sunny rounded-2xl flex items-center justify-center mb-6 text-3xl">💼</div>
+              <h3 className="font-display text-2xl font-bold text-stone-800 mb-3">Business Journey</h3>
+              <p className="font-body text-stone-600 mb-6">Strategy, operations, growth challenges, team decisions — a thinking partner for the hard stuff.</p>
+              <div className="space-y-2">
+                {["Business strategy & planning", "Market positioning", "Operational challenges", "Growth & scaling decisions", "Team & leadership"].map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm font-body text-stone-600">
+                    <span className="text-amber-500">✓</span> {item}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
+      {/* How It Actually Works - The Real Flow */}
       <section id="how-it-works" className="bg-white py-24">
         <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-4">How it works 🛠️</h2>
+            <p className="font-body text-xl text-stone-600">From first hello to your personalized guide in under 5 minutes.</p>
           </div>
 
-          <div className="grid md:grid-cols-4 gap-8">
-            {[
-              { number: "1", title: "Just start talking", description: "No onboarding quiz. Just tell Kira what's on your mind.", color: "gradient-sunny" },
-              { number: "2", title: "She asks questions", description: "Kira makes sure she gets what you actually need.", color: "gradient-coral" },
-              { number: "3", title: "Work together", description: "She guides, you push back, she adjusts.", color: "gradient-lavender" },
-              { number: "4", title: "She learns", description: "More context = better help. Every time.", color: "gradient-mint" }
-            ].map((step, index) => (
-              <div key={index} className="text-center">
-                <div className={`${step.color} w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white font-display font-bold text-2xl shadow-lg`}>{step.number}</div>
-                <h3 className="font-display text-xl font-bold text-stone-800 mb-2">{step.title}</h3>
-                <p className="font-body text-stone-600 text-sm">{step.description}</p>
+          <div className="grid md:grid-cols-3 gap-8 mb-16">
+            <div className="text-center step-connector">
+              <div className="gradient-sunny w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white font-display font-bold text-3xl shadow-lg">1</div>
+              <h3 className="font-display text-xl font-bold text-stone-800 mb-3">Choose your journey</h3>
+              <p className="font-body text-stone-600">Personal or Business? Pick what you're working on and tell Setup Kira what you're trying to figure out.</p>
+            </div>
+            <div className="text-center step-connector">
+              <div className="gradient-coral w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white font-display font-bold text-3xl shadow-lg">2</div>
+              <h3 className="font-display text-xl font-bold text-stone-800 mb-3">Setup Kira learns you</h3>
+              <p className="font-body text-stone-600">A quick voice conversation to understand your context, constraints, and what success looks like for you.</p>
+            </div>
+            <div className="text-center">
+              <div className="gradient-lavender w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white font-display font-bold text-3xl shadow-lg">3</div>
+              <h3 className="font-display text-xl font-bold text-stone-800 mb-3">YOUR Kira is born</h3>
+              <p className="font-body text-stone-600">We create a unique Kira just for you — loaded with your context, ready to think through problems together.</p>
+            </div>
+          </div>
+
+          {/* Visual flow */}
+          <div className="bg-gradient-to-r from-amber-50 via-pink-50 to-violet-50 rounded-3xl p-8 border border-amber-200">
+            <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8">
+              <div className="flex items-center gap-3 bg-white rounded-full px-5 py-3 shadow-sm">
+                <span className="text-2xl">👤</span>
+                <span className="font-body font-medium text-stone-700">You</span>
               </div>
-            ))}
+              <span className="text-pink-400 text-2xl">→</span>
+              <div className="flex items-center gap-3 bg-white rounded-full px-5 py-3 shadow-sm">
+                <div className="avatar-ring"><div className="w-8 h-8 rounded-full overflow-hidden bg-white"><img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full object-cover" /></div></div>
+                <span className="font-body font-medium text-stone-700">Setup Kira</span>
+              </div>
+              <span className="text-pink-400 text-2xl">→</span>
+              <div className="flex items-center gap-3 bg-gradient-to-r from-amber-100 to-pink-100 rounded-full px-5 py-3 shadow-sm border-2 border-amber-300">
+                <div className="avatar-ring"><div className="w-8 h-8 rounded-full overflow-hidden bg-white"><img src="/kira-avatar.jpg" alt="Kira" className="w-full h-full object-cover" /></div></div>
+                <span className="font-display font-bold text-stone-800">YOUR Kira</span>
+                <span className="text-xs bg-amber-400 text-stone-800 px-2 py-0.5 rounded-full font-bold">Personalized</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* The Two-Way Partnership */}
+      <section className="bg-gradient-to-b from-white to-amber-50 py-24">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <span className="text-5xl mb-6 block">🤝</span>
+            <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">This is a <span className="bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent">partnership.</span></h2>
+            <p className="font-body text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">Kira's honest about what she can and can't do. She needs you to show up too.</p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-amber-100">
+              <h3 className="font-display text-xl font-bold text-stone-800 mb-6 flex items-center gap-2">
+                <span className="text-2xl">💬</span> What Kira brings
+              </h3>
+              <ul className="space-y-4 font-body text-stone-600">
+                <li className="flex items-start gap-3"><span className="text-amber-500 mt-1">✓</span> Asks the questions you haven't thought of</li>
+                <li className="flex items-start gap-3"><span className="text-amber-500 mt-1">✓</span> Pushes back when something's unclear</li>
+                <li className="flex items-start gap-3"><span className="text-amber-500 mt-1">✓</span> Remembers your context and builds on it</li>
+                <li className="flex items-start gap-3"><span className="text-amber-500 mt-1">✓</span> Admits when she doesn't know something</li>
+              </ul>
+            </div>
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-pink-100">
+              <h3 className="font-display text-xl font-bold text-stone-800 mb-6 flex items-center gap-2">
+                <span className="text-2xl">🙋</span> What Kira needs from you
+              </h3>
+              <ul className="space-y-4 font-body text-stone-600">
+                <li className="flex items-start gap-3"><span className="text-pink-500 mt-1">✓</span> Be honest about what's really going on</li>
+                <li className="flex items-start gap-3"><span className="text-pink-500 mt-1">✓</span> Correct her when she's off track</li>
+                <li className="flex items-start gap-3"><span className="text-pink-500 mt-1">✓</span> Add context — the more she knows, the better</li>
+                <li className="flex items-start gap-3"><span className="text-pink-500 mt-1">✓</span> Think WITH her, not just ask for answers</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-12 bg-gradient-to-r from-violet-100 to-pink-100 rounded-2xl p-6 text-center">
+            <p className="font-body text-stone-700 text-lg">
+              <span className="font-bold">When it's not working?</span> Kira offers four paths: add more info, reset your goal, try a different approach, or end the conversation. <span className="text-stone-500">No judgment, just options.</span>
+            </p>
           </div>
         </div>
       </section>
@@ -261,18 +357,21 @@ export default function KiraLandingPage() {
           </div>
           <div className="grid md:grid-cols-2 gap-6">
             {[
-              { quote: "I was planning a trip to Portugal and had no idea where to start. Kira asked me what kind of trip I actually wanted — I hadn't even thought about it.", emoji: "✈️" },
-              { quote: "I needed to write a hard email to my boss. Kira didn't just write it for me — she helped me figure out what I was really trying to say.", emoji: "📧" },
-              { quote: "I was stuck on whether to take a new job. Kira asked better questions than I was asking myself.", emoji: "🎯" },
-              { quote: "She helped me meal plan for the week. I told her I hate cooking — she worked with that.", emoji: "🍳" }
+              { quote: "My Kira knows I hate cooking but need to eat healthier. She doesn't suggest elaborate recipes — she works with who I actually am.", emoji: "🍳", type: "Personal" },
+              { quote: "I was stuck on a pricing decision for my SaaS. My Kira asked what my actual goal was — turns out I was solving the wrong problem.", emoji: "💰", type: "Business" },
+              { quote: "Planning a career change at 45. My Kira didn't just list options — she helped me figure out what I was really scared of.", emoji: "🎯", type: "Personal" },
+              { quote: "Needed to have a hard conversation with my co-founder. My Kira helped me figure out what I was actually trying to say first.", emoji: "💼", type: "Business" }
             ].map((item, index) => (
               <div key={index} className="bg-white rounded-2xl p-6 hover-pop shadow-sm border border-amber-100">
-                <div className="text-3xl mb-4">{item.emoji}</div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-3xl">{item.emoji}</span>
+                  <span className={`text-xs font-body px-3 py-1 rounded-full ${item.type === 'Personal' ? 'bg-violet-100 text-violet-600' : 'bg-amber-100 text-amber-600'}`}>{item.type}</span>
+                </div>
                 <p className="font-body text-stone-700 leading-relaxed">"{item.quote}"</p>
               </div>
             ))}
           </div>
-          <p className="text-center font-body text-stone-500 mt-8 text-lg">These aren't magic. They're conversations. 💬</p>
+          <p className="text-center font-body text-stone-500 mt-8 text-lg">Every one of these came from a Kira built specifically for that person's goal. 💬</p>
         </div>
       </section>
 
@@ -281,14 +380,14 @@ export default function KiraLandingPage() {
         <div className="max-w-3xl mx-auto px-6 text-center">
           <div className="fun-border rounded-3xl p-10 lg:p-14 bg-gradient-to-br from-amber-50 to-pink-50">
             <span className="text-6xl mb-6 block">🎉</span>
-            <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">Try her for a month. <span className="bg-gradient-to-r from-amber-500 to-pink-500 bg-clip-text text-transparent">Free.</span></h2>
+            <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-800 mb-6">Create your Kira. <span className="bg-gradient-to-r from-amber-500 to-pink-500 bg-clip-text text-transparent">Free.</span></h2>
             <div className="font-body text-xl text-stone-600 leading-relaxed space-y-4 mb-10">
-              <p>No credit card. No commitment. Just start talking and see if it clicks.</p>
+              <p>30 days free. No credit card. Just start talking and see if it clicks.</p>
               <p>If it works, keep going for <span className="font-bold text-stone-800 text-2xl">$12/month</span>.</p>
               <p>If it doesn't, Kira will want to know why. Honestly.</p>
             </div>
-            <a href="/start" className="font-display gradient-coral text-white px-10 py-5 rounded-full text-xl font-bold hover-pop shadow-xl shadow-pink-200 inline-block">Start Talking to Kira — Free ✨</a>
-            <p className="font-body text-stone-400 text-sm mt-4">You'll be talking to her in about 10 seconds ⚡</p>
+            <a href="/start" className="font-display gradient-coral text-white px-10 py-5 rounded-full text-xl font-bold hover-pop shadow-xl shadow-pink-200 inline-block">Create Your Kira — Free ✨</a>
+            <p className="font-body text-stone-400 text-sm mt-4">Your personalized Kira in under 5 minutes ⚡</p>
           </div>
         </div>
       </section>
@@ -299,12 +398,13 @@ export default function KiraLandingPage() {
           <h2 className="font-display text-3xl font-bold text-stone-800 mb-12 text-center">Questions? 🙋‍♀️</h2>
           <div className="space-y-4">
             {[
-              { q: "What can Kira actually help with?", a: "Anything you'd ask a smart, thoughtful friend. Planning, decisions, writing, thinking things through. She's not a specialist — she's a generalist who asks good questions." },
-              { q: "Is she really free?", a: "For the first month, yes! No credit card, no catch. After that it's $12/month if you want to keep going." },
-              { q: "What if she gets something wrong?", a: "She will sometimes. When that happens, tell her. She'll adjust, learn, and do better. That's how this works." },
-              { q: "Is this like ChatGPT?", a: "Kira uses AI, but she's built to be a guide, not an answer machine. She asks questions, pushes back, and works with you — not just for you." },
+              { q: "What do you mean 'my own Kira'?", a: "When you start, you'll have a quick conversation with Setup Kira. She learns what you're working on, your context, and what success looks like. Then we create a unique Kira agent just for you — one that knows your situation from day one." },
+              { q: "What can Kira actually help with?", a: "Anything you'd work through with a smart, thoughtful friend. Career decisions, business strategy, trip planning, learning goals, hard conversations — she's a generalist who asks good questions and thinks with you." },
+              { q: "Is she really free?", a: "For 30 days, yes. No credit card, no catch. After that it's $12/month if you want to keep going." },
+              { q: "What if she gets something wrong?", a: "She will sometimes. When that happens, tell her. She'll adjust and do better. That's how this partnership works." },
+              { q: "Is this like ChatGPT?", a: "Kira uses AI, but she's built to be YOUR guide, not a generic answer machine. She knows your specific context, asks questions before jumping to answers, and is designed for ongoing thinking partnerships — not one-off queries." },
               { q: "What happens to my conversations?", a: "They stay private. Kira learns from your conversations to help you better, but your data isn't shared or sold. Ever." },
-              { q: "What if I decide it's not for me?", a: "That's okay! Kira will ask you what happened — not to guilt you, but because she actually wants to get better. You can walk away anytime." }
+              { q: "Can I have multiple Kiras for different goals?", a: "Coming soon! For now, each Kira is focused on one primary goal. If you finish that journey and want to start a new one, you can create a new Kira." }
             ].map((faq, index) => (
               <details key={index} className="bg-white rounded-2xl border border-amber-100 group">
                 <summary className="font-display text-lg font-bold text-stone-800 p-6 cursor-pointer list-none flex items-center justify-between hover:bg-amber-50 rounded-2xl transition-colors">
@@ -324,7 +424,7 @@ export default function KiraLandingPage() {
           <p className="font-body text-stone-400 text-sm uppercase tracking-wider mb-4">Brought to you by</p>
           <h3 className="font-display text-3xl font-bold text-white mb-4">Corporate AI Solutions</h3>
           <p className="font-body text-stone-300 text-lg mb-8 max-w-2xl mx-auto">
-            Kira is one of a suite of AI Voice Agent platforms, created by the masters of Voice AI Solutions.
+            Kira is part of a suite of specialized AI Voice Agents. Each one built for a specific purpose. Each one designed to think WITH you.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <a href="https://corporate-ai-solutions.vercel.app/marketplace" target="_blank" rel="noopener noreferrer"
