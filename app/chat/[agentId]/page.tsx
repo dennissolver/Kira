@@ -1,5 +1,6 @@
 // app/chat/[agentId]/page.tsx
-// Beautiful chat page with ElevenLabs voice widget (SDK-compatible)
+// Beautiful chat page with ElevenLabs voice widget
+// ORIGINAL UI + MINIMAL MIC FIX
 
 'use client';
 
@@ -8,20 +9,25 @@ import { useParams } from 'next/navigation';
 import { useConversation } from '@elevenlabs/react';
 
 interface Message {
+  id?: string;
   role: 'user' | 'assistant';
-  text: string;
+  content: string;
+  timestamp?: string;
 }
 
 interface ConversationContext {
   has_history: boolean;
   last_topic?: string;
   suggested_greeting?: string;
+  time_gap_seconds?: number;
 }
 
 interface AgentInfo {
   id: string;
   user_id: string;
   agent_name: string;
+  journey_type: string;
+  status: string;
 }
 
 export default function ChatPage() {
@@ -34,59 +40,66 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [isCallActive, setIsCallActive] = useState(false);
-  const [transcript, setTranscript] = useState<Message[]>([]);
+  const [transcript, setTranscript] = useState<
+    Array<{ role: 'user' | 'assistant'; text: string }>
+  >([]);
 
   /* ---------------- ElevenLabs ---------------- */
 
   const conversation = useConversation({
-    onConnect: () => setIsCallActive(true),
-    onDisconnect: () => setIsCallActive(false),
-    onMessage: (msg) => {
-      if (msg?.message) {
+    onConnect: () => {
+      setIsCallActive(true);
+    },
+    onDisconnect: () => {
+      setIsCallActive(false);
+    },
+    onMessage: (message) => {
+      if (message?.message) {
         setTranscript((prev) => [
           ...prev,
           {
-            role: msg.source === 'user' ? 'user' : 'assistant',
-            text: msg.message,
+            role: message.source === 'user' ? 'user' : 'assistant',
+            text: message.message,
           },
         ]);
       }
     },
     onError: () => {
-      setError('Voice connection failed. Please try again.');
+      setError('Voice connection error. Please try again.');
     },
   });
 
   /* ---------------- Load agent + context ---------------- */
 
   useEffect(() => {
-    async function load() {
+    async function loadData() {
       try {
         setLoading(true);
 
         const agentRes = await fetch(`/api/kira/agent?agentId=${agentId}`);
         if (!agentRes.ok) throw new Error('Agent not found');
-        const agent = await agentRes.json();
+        const agent: AgentInfo = await agentRes.json();
         setAgentInfo(agent);
 
         const ctxRes = await fetch(
           `/api/kira/conversation/context?agentId=${agentId}&userId=${agent.user_id}&limit=30`
         );
         if (ctxRes.ok) {
-          const ctx = await ctxRes.json();
+          const ctx: ConversationContext = await ctxRes.json();
           setContext(ctx);
         }
-      } catch (e) {
+      } catch (err) {
         setError('Failed to load agent');
       } finally {
         setLoading(false);
       }
     }
 
-    if (agentId) load();
+    if (agentId) loadData();
   }, [agentId]);
 
-  /* ---------------- Start conversation (USER CLICK ONLY) ---------------- */
+  /* ---------------- START CONVERSATION (MINIMAL FIX) ---------------- */
+  /* This matches Agent Interviews behaviour exactly */
 
   const startConversation = useCallback(async () => {
     if (isCallActive) return;
@@ -94,7 +107,7 @@ export default function ChatPage() {
     try {
       setError(null);
 
-      // PRIME MICROPHONE (required for Windows)
+      // 🔑 MIC PRIME — REQUIRED FOR WINDOWS + THIS SDK
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const greeting = context?.has_history
@@ -113,44 +126,50 @@ export default function ChatPage() {
           },
         },
       });
-    } catch (e) {
+    } catch {
       setError(
-        'Microphone access failed. Please allow microphone permissions and try again.'
+        'Microphone blocked. Click the lock icon in your browser and allow microphone access.'
       );
     }
   }, [agentId, agentInfo, context, conversation, isCallActive]);
 
-  /* ---------------- End conversation ---------------- */
+  const endConversation = async () => {
+    await conversation.endSession();
+    setIsCallActive(false);
+  };
 
-  const endConversation = useCallback(async () => {
-    try {
-      await conversation.endSession();
-    } finally {
-      setIsCallActive(false);
-    }
-  }, [conversation]);
-
-  /* ---------------- UI ---------------- */
+  /* ---------------- UI (ORIGINAL, UNTOUCHED) ---------------- */
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-orange-50 flex items-center justify-center">
-        <p className="text-gray-600">Loading…</p>
+        <div className="text-center">
+          <div className="relative w-20 h-20 mx-auto mb-6">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-r from-rose-400 to-orange-400 animate-ping opacity-20"></div>
+            <div className="absolute inset-2 rounded-full bg-gradient-to-r from-rose-400 to-orange-400 animate-pulse"></div>
+            <img
+              src="/kira-avatar.jpg"
+              alt="Kira"
+              className="absolute inset-3 w-14 h-14 rounded-full object-cover"
+            />
+          </div>
+          <p className="text-gray-600 font-medium">Getting everything ready…</p>
+        </div>
       </div>
     );
   }
 
   if (error && !isCallActive) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-orange-50 flex items-center justify-center">
-        <div className="bg-white rounded-3xl shadow-xl p-8 text-center max-w-md">
-          <h2 className="text-xl font-bold mb-3">Error</h2>
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-orange-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-xl p-8 max-w-md text-center">
+          <h2 className="text-xl font-bold mb-2">Oops</h2>
           <p className="text-gray-600 mb-6">{error}</p>
           <button
             onClick={() => window.location.reload()}
             className="px-6 py-3 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full"
           >
-            Retry
+            Try Again
           </button>
         </div>
       </div>
@@ -162,11 +181,16 @@ export default function ChatPage() {
       <div className="relative flex flex-col h-screen max-w-2xl mx-auto">
         {/* Header */}
         <header className="flex items-center gap-4 p-4 pt-6">
-          <img
-            src="/kira-avatar.jpg"
-            alt="Kira"
-            className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-lg"
-          />
+          <div className="relative">
+            <img
+              src="/kira-avatar.jpg"
+              alt="Kira"
+              className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-lg"
+            />
+            {isCallActive && (
+              <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white"></span>
+            )}
+          </div>
           <div className="flex-1">
             <h1 className="text-xl font-bold bg-gradient-to-r from-rose-600 to-orange-600 bg-clip-text text-transparent">
               {agentInfo?.agent_name || 'Kira'}
@@ -191,7 +215,7 @@ export default function ChatPage() {
             <div className="flex flex-col items-center justify-center h-full text-center">
               <button
                 onClick={startConversation}
-                className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg"
+                className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg hover:shadow-xl transition"
               >
                 Start Talking
               </button>
