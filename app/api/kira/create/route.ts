@@ -1,3 +1,15 @@
+// app/api/kira/create/route.ts
+// Creates an Operational Kira from an approved draft framework
+//
+// FLOW:
+// 1. User completes setup with Setup Kira → draft saved to kira_drafts
+// 2. User reviews/edits draft on /setup/draft/[draftId]
+// 3. User submits → this endpoint is called with draftId
+// 4. We fetch the draft, create ElevenLabs agent, save to kira_agents
+// 5. User redirected to /chat/[agentId]
+//
+// IMPORTANT: Each draft creates a NEW agent. Users can have multiple agents.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -23,13 +35,17 @@ async function log(
   message?: string,
   details?: Record<string, any>
 ) {
-  await supabase.from('kira_logs').insert({
-    request_id: requestId,
-    step,
-    status,
-    message,
-    details,
-  });
+  try {
+    await supabase.from('kira_logs').insert({
+      request_id: requestId,
+      step,
+      status,
+      message,
+      details,
+    });
+  } catch (e) {
+    console.error('[kira/create] Log failed:', e);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -60,16 +76,43 @@ export async function POST(req: NextRequest) {
     /* ---------------- Draft ---------------- */
     await log(supabase, requestId, 'draft_load', 'start');
 
-    const { data: draft } = await supabase
+    const { data: draft, error: draftError } = await supabase
       .from('kira_drafts')
       .select('*')
       .eq('id', draftId)
       .single();
 
-    if (!draft) throw new Error('Draft not found');
+    if (draftError || !draft) {
+      throw new Error(`Draft not found: ${draftId}`);
+    }
+
+    // Check if draft was already used
+    if (draft.status === 'used') {
+      await log(supabase, requestId, 'draft_load', 'error', 'Draft already used');
+
+      // Find the agent that was created from this draft
+      const { data: existingAgent } = await supabase
+        .from('kira_agents')
+        .select('elevenlabs_agent_id, agent_name')
+        .eq('draft_id', draftId)
+        .single();
+
+      if (existingAgent) {
+        return NextResponse.json({
+          success: true,
+          agentId: existingAgent.elevenlabs_agent_id,
+          agentName: existingAgent.agent_name,
+          isExisting: true,
+          message: 'This draft was already used to create an agent',
+        });
+      }
+
+      throw new Error('Draft already used but no agent found');
+    }
 
     await log(supabase, requestId, 'draft_load', 'success', undefined, {
       status: draft.status,
+      objective: draft.primary_objective,
     });
 
     /* ---------------- User ---------------- */
@@ -93,7 +136,10 @@ export async function POST(req: NextRequest) {
         .select()
         .single();
 
-      if (error || !newUser) throw new Error('User create failed');
+      if (error || !newUser) {
+        await log(supabase, requestId, 'user_lookup', 'error', 'User create failed', { error });
+        throw new Error('User create failed');
+      }
       user = newUser;
     }
 
@@ -101,27 +147,7 @@ export async function POST(req: NextRequest) {
       userId: user.id,
     });
 
-    /* ---------------- Existing agent check ---------------- */
-    await log(supabase, requestId, 'agent_check', 'start');
-
-    const { data: existing } = await supabase
-      .from('kira_agents')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('journey_type', draft.journey_type)
-      .eq('status', 'active')
-      .single();
-
-    if (existing) {
-      await log(supabase, requestId, 'agent_check', 'success', 'existing');
-      return NextResponse.json({
-        success: true,
-        agentId: existing.elevenlabs_agent_id,
-        isExisting: true,
-      });
-    }
-
-    /* ---------------- Prompt ---------------- */
+    /* ---------------- Build Framework & Prompt ---------------- */
     await log(supabase, requestId, 'prompt_build', 'start');
 
     const framework: KiraFramework = {
@@ -136,17 +162,22 @@ export async function POST(req: NextRequest) {
     };
 
     const { systemPrompt, firstMessage } = getKiraPrompt({ framework });
+
+    // Generate agent name with topic for clarity
+    // Format: Kira_Dennis_ChocolateCake_7f1c
     const agentName = generateAgentName(
       draft.journey_type,
       firstName,
+      draft.primary_objective, // Include topic in name
       user.id
     );
 
     await log(supabase, requestId, 'prompt_build', 'success', undefined, {
       agentName,
+      objective: draft.primary_objective,
     });
 
-    /* ---------------- ELEVENLABS CREATE ---------------- */
+    /* ---------------- Create ElevenLabs Agent ---------------- */
     await log(supabase, requestId, 'elevenlabs_create', 'start');
 
     const elevenRes = await fetch(
@@ -173,12 +204,12 @@ export async function POST(req: NextRequest) {
               voice_id: 'EXAVITQu4vr4xnSDxMaL',
             },
             conversation: {
-              max_duration_seconds: 3600,  // ✅ 1 hour timeout
+              max_duration_seconds: 3600,
             },
           },
           platform_settings: {
             webhook: {
-              url: `${APP_URL}/api/kira/webhook`,  // ✅ Correct Kira webhook URL
+              url: `${APP_URL}/api/kira/webhook`,
               events: ['conversation.transcript', 'conversation.ended'],
             },
           },
@@ -196,7 +227,7 @@ export async function POST(req: NextRequest) {
         'ElevenLabs HTTP error',
         { status: elevenRes.status, response: text }
       );
-      throw new Error('ElevenLabs create failed');
+      throw new Error(`ElevenLabs create failed: ${elevenRes.status}`);
     }
 
     const elevenData = await elevenRes.json();
@@ -206,8 +237,10 @@ export async function POST(req: NextRequest) {
       agentId,
     });
 
-    /* ---------------- Save agent ---------------- */
-    await supabase.from('kira_agents').insert({
+    /* ---------------- Save Agent to Database ---------------- */
+    await log(supabase, requestId, 'agent_save', 'start');
+
+    const { error: agentError } = await supabase.from('kira_agents').insert({
       user_id: user.id,
       agent_name: agentName,
       journey_type: draft.journey_type,
@@ -215,12 +248,34 @@ export async function POST(req: NextRequest) {
       framework,
       draft_id: draftId,
       status: 'active',
+      voice_id: 'EXAVITQu4vr4xnSDxMaL',
     });
 
-    await supabase
+    if (agentError) {
+      await log(supabase, requestId, 'agent_save', 'error', 'Failed to save agent', { error: agentError });
+      // Don't throw - agent was created in ElevenLabs, we should still return it
+      console.error('[kira/create] Failed to save agent to DB:', agentError);
+    } else {
+      await log(supabase, requestId, 'agent_save', 'success');
+    }
+
+    /* ---------------- Mark Draft as Used ---------------- */
+    const { error: draftUpdateError } = await supabase
       .from('kira_drafts')
-      .update({ status: 'used' })
+      .update({
+        status: 'used',
+        used_at: new Date().toISOString(),
+      })
       .eq('id', draftId);
+
+    if (draftUpdateError) {
+      console.error('[kira/create] Failed to mark draft as used:', draftUpdateError);
+    }
+
+    await log(supabase, requestId, 'complete', 'success', undefined, {
+      agentId,
+      agentName,
+    });
 
     return NextResponse.json({
       success: true,
@@ -228,7 +283,10 @@ export async function POST(req: NextRequest) {
       agentName,
       requestId,
     });
+
   } catch (err: any) {
+    console.error('[kira/create] Error:', err);
+
     await log(
       supabase,
       requestId,
@@ -238,7 +296,7 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json(
-      { error: 'Create failed', requestId },
+      { error: err?.message || 'Create failed', requestId },
       { status: 500 }
     );
   }

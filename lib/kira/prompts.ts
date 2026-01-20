@@ -595,15 +595,27 @@ export function extractFirstName(fullName: string): string {
   return fullName.split(' ')[0];
 }
 
-// Generate unique agent name
+// Generate unique agent name - includes topic for clarity
 export function generateAgentName(
   journeyType: JourneyType,
   firstName: string,
+  objective: string,
   uniqueId: string
 ): string {
   const cleanFirstName = firstName.replace(/[^a-zA-Z]/g, '');
   const shortId = uniqueId.slice(0, 4);
-  return `Kira_${journeyType.charAt(0).toUpperCase() + journeyType.slice(1)}_${cleanFirstName}_${shortId}`;
+
+  // Extract a short topic from the objective (first 2-3 words)
+  const topicWords = objective
+    .replace(/[^a-zA-Z\s]/g, '') // Remove special chars
+    .split(' ')
+    .filter(w => w.length > 2) // Skip short words like "to", "a", "the"
+    .slice(0, 2) // Take first 2 meaningful words
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join('');
+
+  // Format: Kira_Dennis_ChocolateCake_7f1c
+  return `Kira_${cleanFirstName}_${topicWords || journeyType}_${shortId}`;
 }
 
 // =============================================================================
