@@ -10,7 +10,7 @@ import {
 } from '@/lib/kira/prompts';
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://kira-rho.vercel.app';
 
 /* ------------------------------------------------------------------ */
 /* Logging helper                                                      */
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       agentName,
     });
 
-    /* ---------------- ELEVENLABS (MINIMAL CONFIG - USE DEFAULTS) ---------------- */
+    /* ---------------- ELEVENLABS CREATE ---------------- */
     await log(supabase, requestId, 'elevenlabs_create', 'start');
 
     const elevenRes = await fetch(
@@ -172,10 +172,13 @@ export async function POST(req: NextRequest) {
             tts: {
               voice_id: 'EXAVITQu4vr4xnSDxMaL',
             },
+            conversation: {
+              max_duration_seconds: 3600,  // ✅ 1 hour timeout
+            },
           },
           platform_settings: {
             webhook: {
-              url: `${APP_URL}/api/webhooks/elevenlabs-router`,
+              url: `${APP_URL}/api/kira/webhook`,  // ✅ Correct Kira webhook URL
               events: ['conversation.transcript', 'conversation.ended'],
             },
           },

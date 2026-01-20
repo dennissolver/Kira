@@ -1,6 +1,6 @@
 // app/chat/[agentId]/page.tsx
-// Beautiful chat page with ElevenLabs voice widget
-// ORIGINAL UI + PRODUCTION-SAFE SIGNED URL FLOW
+// Chat page with ElevenLabs voice widget
+// Includes close/pause and resume functionality
 
 'use client';
 
@@ -20,7 +20,7 @@ interface AgentInfo {
   agent_name: string;
   journey_type: string;
   status: string;
-  elevenlabs_agent_id: string; // 🔑 REQUIRED
+  elevenlabs_agent_id: string;
 }
 
 export default function ChatPage() {
@@ -32,6 +32,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCallActive, setIsCallActive] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   const [transcript, setTranscript] = useState<
     Array<{ role: 'user' | 'assistant'; text: string }>
@@ -40,8 +41,13 @@ export default function ChatPage() {
   /* ---------------- ElevenLabs ---------------- */
 
   const conversation = useConversation({
-    onConnect: () => setIsCallActive(true),
-    onDisconnect: () => setIsCallActive(false),
+    onConnect: () => {
+      setIsCallActive(true);
+      setIsPaused(false);
+    },
+    onDisconnect: () => {
+      setIsCallActive(false);
+    },
     onMessage: (message) => {
       if (message?.message) {
         setTranscript((prev) => [
@@ -87,18 +93,19 @@ export default function ChatPage() {
     if (agentId) loadData();
   }, [agentId]);
 
-  /* ---------------- START CONVERSATION (PRODUCTION FIX) ---------------- */
+  /* ---------------- START CONVERSATION ---------------- */
 
   const startConversation = useCallback(async () => {
     if (!agentInfo || isCallActive) return;
 
     try {
       setError(null);
+      setIsPaused(false);
 
-      // 🔑 REQUIRED: mic prime inside user gesture
+      // Request mic permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // 🔑 Ask backend for signed URL (NO ElevenLabs in browser)
+      // Get signed URL from backend
       const res = await fetch('/api/kira/chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -121,12 +128,28 @@ export default function ChatPage() {
     }
   }, [agentInfo, conversation, isCallActive]);
 
+  /* ---------------- END/PAUSE CONVERSATION ---------------- */
+
   const endConversation = async () => {
-    await conversation.endSession();
-    setIsCallActive(false);
+    try {
+      await conversation.endSession();
+      setIsCallActive(false);
+      setIsPaused(true); // Mark as paused so we show resume button
+    } catch (err) {
+      console.error('Error ending conversation:', err);
+      setIsCallActive(false);
+      setIsPaused(true);
+    }
   };
 
-  /* ---------------- UI (ORIGINAL, PRESERVED) ---------------- */
+  /* ---------------- RESUME CONVERSATION ---------------- */
+
+  const resumeConversation = async () => {
+    // Just start a new session - ElevenLabs will continue context
+    await startConversation();
+  };
+
+  /* ---------------- UI ---------------- */
 
   if (loading) {
     return (
@@ -147,7 +170,7 @@ export default function ChatPage() {
     );
   }
 
-  if (error && !isCallActive) {
+  if (error && !isCallActive && !isPaused) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-orange-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl shadow-xl p-8 max-w-md text-center">
@@ -176,7 +199,10 @@ export default function ChatPage() {
               className="w-14 h-14 rounded-full object-cover border-2 border-white shadow-lg"
             />
             {isCallActive && (
-              <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white"></span>
+              <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white animate-pulse"></span>
+            )}
+            {isPaused && !isCallActive && (
+              <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-amber-500 rounded-full border-2 border-white"></span>
             )}
           </div>
           <div className="flex-1">
@@ -184,31 +210,107 @@ export default function ChatPage() {
               {agentInfo?.agent_name || 'Kira'}
             </h1>
             <p className="text-sm text-gray-500">
-              {isCallActive ? 'Live conversation' : 'Your AI companion'}
+              {isCallActive ? 'Live conversation' : isPaused ? 'Paused' : 'Your AI companion'}
             </p>
           </div>
+
+          {/* Close/Pause Button - Always visible when call is active */}
           {isCallActive && (
             <button
               onClick={endConversation}
-              className="p-3 rounded-full bg-red-100 text-red-600"
+              className="p-3 rounded-full bg-red-100 hover:bg-red-200 text-red-600 transition-colors"
+              title="End conversation"
             >
-              ✕
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           )}
         </header>
 
         {/* Main */}
         <main className="flex-1 overflow-y-auto px-4 pb-4">
-          {!isCallActive && transcript.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
+          {/* Initial state - no conversation yet */}
+          {!isCallActive && !isPaused && transcript.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">Ready to chat?</h2>
+                <p className="text-gray-500">Click below to start talking with Kira</p>
+              </div>
               <button
                 onClick={startConversation}
-                className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg hover:shadow-xl transition"
+                className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-3"
               >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
                 Start Talking
               </button>
             </div>
-          ) : (
+          )}
+
+          {/* Paused state - show resume button */}
+          {!isCallActive && isPaused && (
+            <div className="flex flex-col h-full">
+              {/* Show transcript history */}
+              {transcript.length > 0 && (
+                <div className="flex-1 space-y-4 py-4 mb-4">
+                  {transcript.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={`flex ${
+                        msg.role === 'user' ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
+                          msg.role === 'user'
+                            ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white'
+                            : 'bg-white text-gray-800'
+                        }`}
+                      >
+                        {msg.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Resume section */}
+              <div className="flex flex-col items-center justify-center py-8 border-t border-gray-200">
+                <div className="bg-amber-50 rounded-2xl p-6 text-center mb-6 max-w-sm">
+                  <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <p className="text-amber-800 font-medium">Conversation paused</p>
+                  <p className="text-amber-600 text-sm mt-1">Click below to continue where you left off</p>
+                </div>
+
+                <button
+                  onClick={resumeConversation}
+                  className="px-8 py-4 bg-gradient-to-r from-rose-500 to-orange-500 text-white rounded-full text-lg font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-3"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Resume Chat
+                </button>
+
+                <button
+                  onClick={() => window.location.href = '/'}
+                  className="mt-4 text-gray-500 hover:text-gray-700 text-sm transition-colors"
+                >
+                  ← Back to home
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Active conversation - show transcript */}
+          {isCallActive && (
             <div className="space-y-4 py-4">
               {transcript.map((msg, i) => (
                 <div
@@ -232,9 +334,26 @@ export default function ChatPage() {
           )}
         </main>
 
+        {/* Footer - listening indicator */}
         {isCallActive && (
-          <footer className="p-3 text-center text-sm text-gray-500">
-            Listening…
+          <footer className="p-4 border-t border-gray-100 bg-white/50 backdrop-blur-sm">
+            <div className="flex items-center justify-center gap-3">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+              </div>
+              <span className="text-sm text-gray-500">Listening...</span>
+              <button
+                onClick={endConversation}
+                className="ml-4 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Pause
+              </button>
+            </div>
           </footer>
         )}
       </div>
