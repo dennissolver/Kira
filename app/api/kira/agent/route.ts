@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     // Look up agent by ElevenLabs agent ID
     const { data: agent, error } = await supabase
       .from('kira_agents')
-      .select('id, user_id, agent_name, journey_type, status')
+      .select('id, user_id, agent_name, journey_type, status, elevenlabs_agent_id')
       .eq('elevenlabs_agent_id', agentId)
       .single();
 
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
       agent_name: agent.agent_name,
       journey_type: agent.journey_type,
       status: agent.status,
+      elevenlabs_agent_id: agent.elevenlabs_agent_id,
     });
 
   } catch (error) {
