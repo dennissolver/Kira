@@ -211,7 +211,7 @@ async function handleCreateOperationalKira(
     });
 
     // 3. Create the ElevenLabs agent with CORRECT API structure
-    const agentName = generateAgentName(journeyType, userName, userId);
+    const agentName = generateAgentName(journeyType, userName, body.primary_goal || 'General', userId);
 
     const customFirstMessage = `Hey ${userName}! I've got the context from our setup chat. ${body.primary_goal ? `So we're working on: ${body.primary_goal}. ` : ''}Let's dive in — what's on your mind?`;
 
