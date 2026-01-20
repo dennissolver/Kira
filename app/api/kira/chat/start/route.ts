@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     /* ------------------------------------------------------------ */
 
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${kiraAgent.elevenlabs_agent_id}`,
+      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${kiraAgent.elevenlabs_agent_id}`,
       {
         method: 'GET',
         headers: {
