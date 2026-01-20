@@ -216,7 +216,7 @@ export default function StartPage() {
             </button>
           ) : (
 
-              href="/"
+            <a href="/"
               className="text-stone-500 hover:text-stone-300 text-sm transition-colors inline-flex items-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -393,7 +393,7 @@ export default function StartPage() {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      'elevenlabs-convai': React.DetailedHTMLProps
+      'elevenlabs-convai': React.DetailedHTMLProps<
         React.HTMLAttributes<HTMLElement> & {
           'agent-id': string;
           'dynamic-variables'?: string;
