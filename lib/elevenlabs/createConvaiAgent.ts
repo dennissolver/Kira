@@ -25,19 +25,17 @@ export async function createConvaiAgent({
         name,
         conversation_config: {
           agent: {
-            prompt: { prompt },        // ✅ NOT system / NOT messages
-            first_message: greeting,   // ✅ REQUIRED
+            prompt: {
+              prompt: prompt,  // ✅ Single string, not nested object
+              llm: 'gpt-4o-mini',
+              temperature: 0.7,
+            },
+            first_message: greeting,  // ✅ Correct location at agent level
             language: 'en',
           },
           tts: {
             voice_id: voiceId,
             model_id: 'eleven_turbo_v2_5',
-          },
-          stt: {
-            provider: 'elevenlabs',
-          },
-          turn: {
-            mode: 'turn_based',
           },
         },
         platform_settings: {
