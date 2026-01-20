@@ -83,6 +83,18 @@ const SendIcon = () => (
   </svg>
 );
 
+const CheckCircleIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
+
+const ArchiveIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+  </svg>
+);
+
 interface ConversationContext {
   has_history: boolean;
   last_topic?: string;
@@ -116,6 +128,7 @@ export default function ChatPage() {
   // Modal states
   const [showReferModal, setShowReferModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
 
   /* ---------------- ElevenLabs ---------------- */
 
@@ -306,6 +319,17 @@ export default function ChatPage() {
               {isCallActive ? '🟢 Live conversation' : isPaused ? '⏸️ Paused' : 'Your AI companion'}
             </p>
           </div>
+
+          {/* Corporate AI Solutions Badge */}
+          <a
+            href="https://corporate-ai-solutions.vercel.app/marketplace"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded-full text-xs transition-colors"
+          >
+            <span className="opacity-70">by</span>
+            <span className="font-semibold">CAS</span>
+          </a>
         </header>
 
         {/* Main Content Area */}
@@ -373,7 +397,7 @@ export default function ChatPage() {
         {/* ============================================
             BOTTOM CONTROL BAR - Always Visible
             ============================================ */}
-        <footer className="border-t border-gray-200 bg-white p-4 safe-area-pb">
+        <footer className="border-t border-gray-200 bg-white p-4 pb-14 safe-area-pb">
           {/* Main Control Buttons Row */}
           <div className="flex items-center justify-center gap-3 mb-4">
             {/* START Button - shown when not active and not paused */}
@@ -387,7 +411,7 @@ export default function ChatPage() {
               </button>
             )}
 
-            {/* PAUSE Button - shown when call is active */}
+            {/* PAUSE and END buttons - shown when call is active */}
             {isCallActive && (
               <>
                 <button
@@ -400,10 +424,10 @@ export default function ChatPage() {
 
                 <button
                   onClick={endConversation}
-                  className="flex-1 max-w-[150px] py-4 px-4 bg-red-100 hover:bg-red-200 text-red-600 rounded-2xl font-semibold transition-all flex items-center justify-center gap-2"
+                  className="flex-1 max-w-[150px] py-4 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-semibold transition-all flex items-center justify-center gap-2"
                 >
                   <StopIcon />
-                  <span>End</span>
+                  <span>End Session</span>
                 </button>
               </>
             )}
@@ -423,25 +447,36 @@ export default function ChatPage() {
           </div>
 
           {/* Secondary Actions Row */}
-          <div className="flex items-center justify-center gap-4 pt-2 border-t border-gray-100">
+          <div className="flex items-center justify-center gap-2 pt-2 border-t border-gray-100">
             {/* Upload Knowledge */}
             <button
               onClick={() => setShowUploadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors"
+              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-xl transition-colors text-sm"
             >
               <UploadIcon />
-              <span className="text-sm font-medium">Add Knowledge</span>
+              <span className="hidden sm:inline font-medium">Add Knowledge</span>
             </button>
 
-            <div className="w-px h-6 bg-gray-200"></div>
+            <div className="w-px h-5 bg-gray-200"></div>
 
             {/* Refer a Friend */}
             <button
               onClick={() => setShowReferModal(true)}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
+              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors text-sm"
             >
               <GiftIcon />
-              <span className="text-sm font-medium">Share Kira</span>
+              <span className="hidden sm:inline font-medium">Share Kira</span>
+            </button>
+
+            <div className="w-px h-5 bg-gray-200"></div>
+
+            {/* Complete Project */}
+            <button
+              onClick={() => setShowCompleteModal(true)}
+              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded-xl transition-colors text-sm"
+            >
+              <CheckCircleIcon />
+              <span className="hidden sm:inline font-medium">Complete Project</span>
             </button>
           </div>
         </footer>
@@ -461,6 +496,18 @@ export default function ChatPage() {
         agentId={agentId}
         userId={agentInfo?.user_id}
       />
+
+      {/* ============ COMPLETE PROJECT MODAL ============ */}
+      <CompleteProjectModal
+        isOpen={showCompleteModal}
+        onClose={() => setShowCompleteModal(false)}
+        agentId={agentId}
+        agentName={agentInfo?.agent_name || 'Kira'}
+        userId={agentInfo?.user_id}
+      />
+
+      {/* ============ CORPORATE AI SOLUTIONS FOOTER ============ */}
+      <CorporateAIFooter />
     </div>
   );
 }
@@ -904,6 +951,243 @@ function UploadKnowledgeModal({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   COMPLETE PROJECT MODAL
+   ================================================================ */
+
+function CompleteProjectModal({
+  isOpen,
+  onClose,
+  agentId,
+  agentName,
+  userId,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  agentId: string;
+  agentName: string;
+  userId?: string;
+}) {
+  const [feedback, setFeedback] = useState('');
+  const [status, setStatus] = useState<'idle' | 'completing' | 'completed' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handleComplete = async () => {
+    setStatus('completing');
+    setErrorMessage('');
+
+    try {
+      const response = await fetch('/api/kira/agent/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId,
+          userId,
+          feedback: feedback.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to complete project');
+      }
+
+      setStatus('completed');
+
+      // Redirect to home after a delay
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 3000);
+    } catch (err) {
+      setStatus('error');
+      setErrorMessage(err instanceof Error ? err.message : 'Something went wrong');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && status !== 'completing') onClose(); }}
+    >
+      <div className="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 relative">
+        {status !== 'completing' && status !== 'completed' && (
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition"
+          >
+            <XIcon />
+          </button>
+        )}
+
+        {status === 'completed' ? (
+          <div className="text-center py-8">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-2">
+              Project Complete! 🎉
+            </h3>
+            <p className="text-gray-600 mb-2">
+              Great work finishing this one.
+            </p>
+            <p className="text-gray-500 text-sm">
+              Redirecting you home...
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <ArchiveIcon />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-1">
+                Complete this project?
+              </h3>
+              <p className="text-gray-600 text-sm">
+                This will archive <strong>{agentName}</strong> and mark the project as done.
+              </p>
+            </div>
+
+            <div className="bg-amber-50 rounded-xl p-4 mb-4">
+              <p className="text-amber-800 text-sm">
+                <strong>What happens:</strong>
+              </p>
+              <ul className="text-amber-700 text-sm mt-2 space-y-1">
+                <li>• Your conversation history is saved</li>
+                <li>• The agent will be archived (not deleted)</li>
+                <li>• You can start a new project anytime</li>
+              </ul>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Any final notes? (optional)
+              </label>
+              <textarea
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                placeholder="How did it go? What did you accomplish?"
+                rows={3}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 transition resize-none"
+              />
+            </div>
+
+            {status === 'error' && (
+              <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg mb-4">
+                {errorMessage}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                disabled={status === 'completing'}
+                className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleComplete}
+                disabled={status === 'completing'}
+                className="flex-1 py-3 px-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {status === 'completing' ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Completing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircleIcon />
+                    Complete Project
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   CORPORATE AI SOLUTIONS FOOTER
+   ================================================================ */
+
+function CorporateAIFooter() {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40">
+      {/* Collapsed bar */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full bg-slate-900 text-white py-2 px-4 flex items-center justify-center gap-2 text-sm hover:bg-slate-800 transition-colors"
+      >
+        <span className="text-amber-400">⚡</span>
+        <span className="opacity-80">Kira by</span>
+        <span className="font-semibold">Corporate AI Solutions</span>
+        <svg
+          className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+        </svg>
+      </button>
+
+      {/* Expanded panel */}
+      {isExpanded && (
+        <div className="bg-slate-900 border-t border-slate-700 px-6 py-6">
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center mb-4">
+              <h3 className="text-white font-bold text-lg mb-1">Corporate AI Solutions</h3>
+              <p className="text-slate-400 text-sm">
+                Kira is one of a suite of AI Voice Agent platforms, created by the masters of Voice AI Solutions.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <a
+                href="https://corporate-ai-solutions.vercel.app/marketplace"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-amber-500 hover:bg-amber-400 text-slate-900 px-4 py-2 rounded-full text-sm font-semibold transition-colors flex items-center gap-2"
+              >
+                Explore Marketplace →
+              </a>
+              <a
+                href="https://corporate-ai-solutions.vercel.app/studio/thesis"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-slate-300 hover:text-amber-400 px-4 py-2 text-sm transition-colors"
+              >
+                Longtail AI Ventures
+              </a>
+              <a
+                href="/about"
+                className="text-slate-300 hover:text-amber-400 px-4 py-2 text-sm transition-colors"
+              >
+                Our Story
+              </a>
+            </div>
+
+            <p className="text-center text-slate-500 text-xs mt-4">
+              © 2025 Corporate AI Solutions · Created by Dennis McMahin
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
