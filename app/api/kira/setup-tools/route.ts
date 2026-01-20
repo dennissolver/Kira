@@ -3,10 +3,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { createKiraAgent, createKiraTools } from '@/lib/elevenlabs/client';
 import { getKiraPrompt, generateAgentName } from '@/lib/kira/prompts';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY!;
+const KIRA_VOICE_ID = process.env.KIRA_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
 
 // In-memory session storage (in production, use Redis or database)
 // Key: conversation_id, Value: session data
@@ -190,10 +191,7 @@ async function handleCreateOperationalKira(
       userId = newUser.id;
     }
 
-    // 2. Create ElevenLabs tools
-    const toolIds = await createKiraTools(APP_URL);
-
-    // 3. Generate personalized prompt with gathered context
+    // 2. Generate personalized prompt with gathered context
     const existingMemory = [
       `Primary goal: ${body.primary_goal}`,
       ...body.key_context,
@@ -203,8 +201,8 @@ async function handleCreateOperationalKira(
     const { systemPrompt, firstMessage } = getKiraPrompt({
       framework: {
         userName: userName,
-        firstName: userName,  // or extract first name
-        location: 'Unknown',  // You may want to collect this
+        firstName: userName,
+        location: 'Unknown',
         journeyType: journeyType,
         primaryObjective: body.primary_goal,
         keyContext: body.key_context,
@@ -212,28 +210,71 @@ async function handleCreateOperationalKira(
       existingMemory,
     });
 
-    // 4. Create the ElevenLabs agent
+    // 3. Create the ElevenLabs agent with CORRECT API structure
     const agentName = generateAgentName(journeyType, userName, userId);
 
-    const agent = await createKiraAgent({
-      name: agentName,
-      systemPrompt,
-      firstMessage: `Hey ${userName}! I've got the context from our setup chat. ${body.primary_goal ? `So we're working on: ${body.primary_goal}. ` : ''}Let's dive in — what's on your mind?`,
-      toolIds,
-      webhookUrl: APP_URL,
-    });
+    const customFirstMessage = `Hey ${userName}! I've got the context from our setup chat. ${body.primary_goal ? `So we're working on: ${body.primary_goal}. ` : ''}Let's dive in — what's on your mind?`;
 
-    console.log(`[create_operational_kira] Created agent: ${agent.agent_id}`);
+    const elevenRes = await fetch(
+      'https://api.elevenlabs.io/v1/convai/agents/create',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': ELEVENLABS_API_KEY,
+        },
+        body: JSON.stringify({
+          name: agentName,
+          conversation_config: {
+            agent: {
+              prompt: {
+                prompt: systemPrompt,
+                llm: 'gpt-4o-mini',
+                temperature: 0.7,
+              },
+              first_message: customFirstMessage,
+              language: 'en',
+            },
+            tts: {
+              voice_id: KIRA_VOICE_ID,
+              model_id: 'eleven_turbo_v2_5',
+            },
+          },
+          platform_settings: {
+            webhook: {
+              url: `${APP_URL}/api/webhooks/elevenlabs-router`,
+              events: ['conversation.transcript', 'conversation.ended'],
+            },
+          },
+        }),
+      }
+    );
 
-    // 5. Save agent to database
+    if (!elevenRes.ok) {
+      const errText = await elevenRes.text();
+      console.error('[create_operational_kira] ElevenLabs error:', errText);
+      return NextResponse.json({
+        result: {
+          success: false,
+          message: "Something went wrong creating your Kira. Let's try again.",
+          error: errText,
+        }
+      });
+    }
+
+    const elevenData = await elevenRes.json();
+    const agentId = elevenData.agent_id;
+
+    console.log(`[create_operational_kira] Created agent: ${agentId}`);
+
+    // 4. Save agent to database
     const { data: savedAgent, error: agentError } = await supabase
       .from('kira_agents')
       .insert({
         user_id: userId,
         agent_name: agentName,
         journey_type: journeyType,
-        elevenlabs_agent_id: agent.agent_id,
-        elevenlabs_tool_ids: toolIds,
+        elevenlabs_agent_id: agentId,
       })
       .select()
       .single();
@@ -242,7 +283,7 @@ async function handleCreateOperationalKira(
       console.error('[create_operational_kira] Failed to save agent:', agentError);
     }
 
-    // 6. Save gathered context as initial memories
+    // 5. Save gathered context as initial memories
     for (const ctx of session.contexts) {
       await supabase.from('kira_memory').insert({
         user_id: userId,
@@ -253,16 +294,16 @@ async function handleCreateOperationalKira(
       });
     }
 
-    // 7. Clean up session
+    // 6. Clean up session
     setupSessions.delete(conversationId);
 
-    console.log(`[create_operational_kira] Success! Agent ID: ${agent.agent_id}`);
+    console.log(`[create_operational_kira] Success! Agent ID: ${agentId}`);
 
     return NextResponse.json({
       result: {
         success: true,
-        agent_id: agent.agent_id,
-        redirect_url: `/chat/${agent.agent_id}`,
+        agent_id: agentId,
+        redirect_url: `/chat/${agentId}`,
         message: "Perfect! Your Kira is ready. Redirecting you now...",
       }
     });
