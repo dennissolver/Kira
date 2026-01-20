@@ -1,5 +1,5 @@
 // lib/elevenlabs/client.ts
-// ElevenLabs ConvAI client – REAL agent creation only
+// ElevenLabs ConvAI client – CORRECT schema
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
@@ -26,7 +26,7 @@ export interface ConvAIAgent {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Create ConvAI Agent (THIS IS THE FIX)                                      */
+/* Create ConvAI Agent (FIXED)                                                */
 /* -------------------------------------------------------------------------- */
 
 export async function createKiraAgent(
@@ -40,17 +40,21 @@ export async function createKiraAgent(
     },
     body: JSON.stringify({
       name: params.name,
-      language: 'en',
-      model: 'eleven_multilingual_v2',
-      voice_id: 'EXAVITQu4vr4xnSDxMaL',
 
-      prompt: {
-        system: params.systemPrompt,
+      conversation_config: {
+        system_prompt: params.systemPrompt,
         first_message: params.firstMessage,
+        tools: (params.toolIds ?? []).map((id) => ({
+          tool_id: id,
+        })),
       },
 
-      tools: params.toolIds ?? [],
-      webhook_url: params.webhookUrl,
+      webhooks: params.webhookUrl
+        ? {
+            conversation_start: `${params.webhookUrl}/api/webhooks/elevenlabs-router`,
+            message: `${params.webhookUrl}/api/webhooks/elevenlabs-router`,
+          }
+        : undefined,
     }),
   });
 
@@ -66,17 +70,13 @@ export async function createKiraAgent(
     throw new Error('ElevenLabs response missing agent_id');
   }
 
-  return {
-    agent_id: data.agent_id,
-  };
+  return { agent_id: data.agent_id };
 }
 
 /* -------------------------------------------------------------------------- */
-/* Tool creation (unchanged unless you want to revisit later)                */
+/* Tool creation (leave as-is if unused)                                      */
 /* -------------------------------------------------------------------------- */
 
-export async function createKiraTools(appUrl: string): Promise<string[]> {
-  // If tools already work in interviews, LEAVE THIS AS IS.
-  // Do not touch unless tools are broken.
+export async function createKiraTools(_appUrl: string): Promise<string[]> {
   return [];
 }
