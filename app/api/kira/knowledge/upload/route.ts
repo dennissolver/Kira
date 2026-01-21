@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     const elevenData = await elevenRes.json();
     const documentId = elevenData.id;
-    const documentName = elevenData.name;
+    const documentName = elevenData.name || customName || file.name;
 
     console.log(`[knowledge/upload] Created document: ${documentId}`);
 
@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
         file_name: file.name,
         file_size: file.size,
         file_type: file.type,
+        summary: customName || `Uploaded file: ${file.name}`,
         status: 'ready',
       })
       .select()
@@ -89,9 +90,11 @@ export async function POST(req: NextRequest) {
 
     // If agentId provided, attach document to agent
     if (agentId) {
-      const attachResult = await attachDocumentToAgent(agentId, documentId);
+      const attachResult = await attachDocumentToAgent(agentId, documentId, documentName);
       if (!attachResult.success) {
         console.error('[knowledge/upload] Failed to attach to agent:', attachResult.error);
+      } else {
+        console.log(`[knowledge/upload] Attached document to agent: ${agentId}`);
       }
     }
 
@@ -112,7 +115,11 @@ export async function POST(req: NextRequest) {
 }
 
 // Helper to attach document to an existing agent
-async function attachDocumentToAgent(agentId: string, documentId: string): Promise<{ success: boolean; error?: string }> {
+async function attachDocumentToAgent(
+  agentId: string,
+  documentId: string,
+  documentName: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     // First get current agent config to preserve existing knowledge base
     const getRes = await fetch(
@@ -132,10 +139,14 @@ async function attachDocumentToAgent(agentId: string, documentId: string): Promi
     const agentData = await getRes.json();
     const existingKnowledgeBase = agentData.conversation_config?.agent?.prompt?.knowledge_base || [];
 
-    // Add new document to knowledge base
+    // Add new document to knowledge base with required name field
     const updatedKnowledgeBase = [
       ...existingKnowledgeBase,
-      { type: 'file', id: documentId }
+      {
+        type: 'file',
+        id: documentId,
+        name: documentName,
+      }
     ];
 
     // Update agent with new knowledge base

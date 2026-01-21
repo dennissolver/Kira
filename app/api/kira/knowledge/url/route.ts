@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           url,
-          name: name || undefined,
+          name: name || url,
         }),
       }
     );
@@ -59,9 +59,17 @@ export async function POST(req: NextRequest) {
 
     const elevenData = await elevenRes.json();
     const documentId = elevenData.id;
-    const documentName = elevenData.name;
+    const documentName = elevenData.name || name || url;
 
     console.log(`[knowledge/url] Created document: ${documentId}`);
+
+    // Generate a summary for the database
+    let hostname = 'website';
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      // Use default
+    }
 
     // Save to our database
     const supabase = createServiceClient();
@@ -74,6 +82,7 @@ export async function POST(req: NextRequest) {
         source_type: 'user_url',
         title: name || url,
         url: url,
+        summary: name || `Content from ${hostname}`,
         status: 'ready',
       })
       .select()
@@ -85,9 +94,11 @@ export async function POST(req: NextRequest) {
 
     // If agentId provided, attach document to agent
     if (agentId) {
-      const attachResult = await attachDocumentToAgent(agentId, documentId);
+      const attachResult = await attachDocumentToAgent(agentId, documentId, documentName);
       if (!attachResult.success) {
         console.error('[knowledge/url] Failed to attach to agent:', attachResult.error);
+      } else {
+        console.log(`[knowledge/url] Attached document to agent: ${agentId}`);
       }
     }
 
@@ -108,7 +119,11 @@ export async function POST(req: NextRequest) {
 }
 
 // Helper to attach document to an existing agent
-async function attachDocumentToAgent(agentId: string, documentId: string): Promise<{ success: boolean; error?: string }> {
+async function attachDocumentToAgent(
+  agentId: string,
+  documentId: string,
+  documentName: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     // First get current agent config
     const getRes = await fetch(
@@ -128,10 +143,14 @@ async function attachDocumentToAgent(agentId: string, documentId: string): Promi
     const agentData = await getRes.json();
     const existingKnowledgeBase = agentData.conversation_config?.agent?.prompt?.knowledge_base || [];
 
-    // Add new document
+    // Add new document with required name field
     const updatedKnowledgeBase = [
       ...existingKnowledgeBase,
-      { type: 'url', id: documentId }
+      {
+        type: 'url',
+        id: documentId,
+        name: documentName,
+      }
     ];
 
     // Update agent
