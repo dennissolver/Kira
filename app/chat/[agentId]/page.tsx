@@ -724,49 +724,65 @@ function UploadKnowledgeModal({
   };
 
   const handleSubmit = async () => {
-    setUploading(true);
-    setStatus('idle');
-    setErrorMessage('');
+      setUploading(true);
+      setStatus('idle');
+      setErrorMessage('');
 
-    try {
-      const formData = new FormData();
-      formData.append('agentId', agentId);
-      if (userId) formData.append('userId', userId);
+      try {
+        // Upload files
+        if (files.length > 0) {
+          for (const file of files) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('agentId', agentId);
+            if (userId) formData.append('userId', userId);
 
-      files.forEach(file => {
-        formData.append('files', file);
-      });
+            const response = await fetch('/api/kira/knowledge/upload', {
+              method: 'POST',
+              body: formData,
+            });
 
-      const validUrls = urls.filter(url => url.trim());
-      if (validUrls.length > 0) {
-        formData.append('urls', JSON.stringify(validUrls));
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || `Failed to upload ${file.name}`);
+            }
+          }
+        }
+
+        // Upload URLs separately
+        const validUrls = urls.filter(url => url.trim());
+        for (const url of validUrls) {
+          const response = await fetch('/api/kira/knowledge/url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: url.trim(),
+              agentId,
+              userId,
+            }),
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || `Failed to add URL: ${url}`);
+          }
+        }
+
+        setStatus('success');
+
+        setTimeout(() => {
+          setFiles([]);
+          setUrls(['']);
+          setStatus('idle');
+          onClose();
+        }, 2000);
+      } catch (err) {
+        setStatus('error');
+        setErrorMessage(err instanceof Error ? err.message : 'Upload failed');
+      } finally {
+        setUploading(false);
       }
-
-      const response = await fetch('/api/kira/knowledge/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Upload failed');
-      }
-
-      setStatus('success');
-
-      setTimeout(() => {
-        setFiles([]);
-        setUrls(['']);
-        setStatus('idle');
-        onClose();
-      }, 2000);
-    } catch (err) {
-      setStatus('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
+    };
 
   if (!isOpen) return null;
 
