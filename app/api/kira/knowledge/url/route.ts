@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
       .from('kira_knowledge')
       .insert({
         user_id: userId,
+        created_by: userId,
         elevenlabs_document_id: documentId,
         source_type: 'user_url',
         title: name || url,
