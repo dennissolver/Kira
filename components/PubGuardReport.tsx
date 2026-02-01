@@ -5,6 +5,8 @@
 'use client';
 
 import { useState } from 'react';
+import { FileText, Loader2 } from 'lucide-react';
+import jsPDF from 'jspdf';
 
 // ============================================================================
 // TYPES
@@ -165,6 +167,85 @@ const USER_TYPE_CONFIG: Record<UserType, {
 };
 
 // ============================================================================
+// PDF DOWNLOAD BUTTON COMPONENT
+// ============================================================================
+
+function PDFDownloadButton({ report, userType }: { report: PubGuardReport; userType: UserType }) {
+  const [generating, setGenerating] = useState(false);
+
+  const generatePDF = async () => {
+    setGenerating(true);
+    try {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 20;
+      let y = margin;
+
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PubGuard Security Report', pageWidth / 2, y, { align: 'center' });
+      y += 15;
+
+      doc.setFontSize(12);
+      doc.text(`Repository: ${report.target?.name}`, margin, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.text(`Risk Score: ${report.overallRiskScore}/100`, margin, y);
+      y += 8;
+      doc.text(`Rating: ${report.trafficLight?.toUpperCase()}`, margin, y);
+      y += 15;
+
+      doc.setFontSize(14);
+      doc.text('Findings:', margin, y);
+      y += 8;
+      (['critical', 'high', 'medium', 'positive'] as const).forEach(sev => {
+        const findings = report.findings?.[sev] || [];
+        if (findings.length > 0) {
+          doc.setFontSize(10);
+          doc.text(`${sev.toUpperCase()} (${findings.length}):`, margin, y);
+          y += 5;
+          findings.slice(0, 3).forEach((f) => {
+            doc.text(`  • ${f.title}`, margin, y);
+            y += 5;
+          });
+          y += 3;
+        }
+      });
+
+      doc.save(`pubguard-${report.target?.name?.replace('/', '-')}.pdf`);
+    } catch (e) {
+      console.error('PDF generation failed:', e);
+      alert('PDF generation failed');
+    }
+    setGenerating(false);
+  };
+
+  return (
+    <button
+      onClick={generatePDF}
+      disabled={generating}
+      className={`px-6 py-3 rounded-xl flex items-center gap-2 ${
+        generating
+          ? 'bg-slate-700 text-slate-400'
+          : 'bg-gradient-to-r from-red-500 to-pink-500 text-white hover:from-red-600 hover:to-pink-600'
+      }`}
+    >
+      {generating ? (
+        <>
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Generating...
+        </>
+      ) : (
+        <>
+          <FileText className="w-4 h-4" />
+          Download PDF
+        </>
+      )}
+    </button>
+  );
+}
+
+// ============================================================================
 // HELPER COMPONENTS
 // ============================================================================
 
@@ -261,12 +342,10 @@ const FindingCard = ({ finding, compact = false }: { finding: Finding; compact?:
 // USER-TYPE SPECIFIC SECTIONS
 // ============================================================================
 
-// WRITER: Guidance tab with liability focus
 const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
   <div className="space-y-6">
     <h3 className="text-xl font-semibold text-white mb-4">✏️ Writer Guidance</h3>
 
-    {/* Can Recommend? */}
     <div className={`rounded-xl p-4 ${
       report.writerGuidance.canRecommend 
         ? 'bg-green-500/10 border border-green-500/30' 
@@ -282,7 +361,6 @@ const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
       </p>
     </div>
 
-    {/* Must Disclose */}
     {report.writerGuidance.mustDisclose.length > 0 && (
       <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-amber-400 mb-3">⚠️ Must Disclose to Readers</h4>
@@ -297,7 +375,6 @@ const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
       </div>
     )}
 
-    {/* Suggested Disclaimer */}
     <div>
       <h4 className="text-lg font-semibold text-white mb-3">📋 Copy-Paste Disclaimer</h4>
       <div className="bg-slate-800/50 rounded-lg p-4 border border-white/10">
@@ -311,7 +388,6 @@ const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
       </button>
     </div>
 
-    {/* Key Points */}
     {report.writerGuidance.keyPointsToMention.length > 0 && (
       <div>
         <h4 className="text-lg font-semibold text-white mb-3">💡 Key Points for Your Article</h4>
@@ -326,7 +402,6 @@ const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
       </div>
     )}
 
-    {/* Liability Warning */}
     <div className="bg-red-950/30 border border-red-500/20 rounded-xl p-4">
       <h4 className="text-sm font-semibold text-red-400 mb-2">⚖️ Liability Reminder</h4>
       <p className="text-xs text-red-300/80 leading-relaxed">
@@ -338,7 +413,6 @@ const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
   </div>
 );
 
-// DEVELOPER: Actionable fixes tab
 const DeveloperActionsTab = ({ report }: { report: PubGuardReport }) => {
   const allFindings = [
     ...report.findings.critical,
@@ -350,7 +424,6 @@ const DeveloperActionsTab = ({ report }: { report: PubGuardReport }) => {
     <div className="space-y-6">
       <h3 className="text-xl font-semibold text-white mb-4">💻 Development Actions</h3>
 
-      {/* Priority Fixes */}
       <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-blue-400 mb-3">🔧 Priority Fixes Before Release</h4>
         {allFindings.length === 0 ? (
@@ -375,7 +448,6 @@ const DeveloperActionsTab = ({ report }: { report: PubGuardReport }) => {
         )}
       </div>
 
-      {/* Security Checklist */}
       <div>
         <h4 className="text-lg font-semibold text-white mb-3">✅ Security Checklist</h4>
         <div className="grid gap-2">
@@ -399,7 +471,6 @@ const DeveloperActionsTab = ({ report }: { report: PubGuardReport }) => {
         </div>
       </div>
 
-      {/* Recommended Dependencies */}
       <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-white mb-3">📦 Recommended Security Tools</h4>
         <div className="grid md:grid-cols-2 gap-3 text-sm">
@@ -425,7 +496,6 @@ const DeveloperActionsTab = ({ report }: { report: PubGuardReport }) => {
   );
 };
 
-// USER: Simple safety-focused tab
 const UserSafetyTab = ({ report }: { report: PubGuardReport }) => {
   const isSafe = report.trafficLight === 'green';
   const isRisky = report.trafficLight === 'red';
@@ -434,7 +504,6 @@ const UserSafetyTab = ({ report }: { report: PubGuardReport }) => {
     <div className="space-y-6">
       <h3 className="text-xl font-semibold text-white mb-4">👤 Is This Safe to Install?</h3>
 
-      {/* Big Answer */}
       <div className={`rounded-2xl p-6 text-center ${
         isSafe ? 'bg-green-500/10 border-2 border-green-500/30' :
         isRisky ? 'bg-red-500/10 border-2 border-red-500/30' :
@@ -455,7 +524,6 @@ const UserSafetyTab = ({ report }: { report: PubGuardReport }) => {
         </p>
       </div>
 
-      {/* What You Should Know */}
       <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-white mb-3">📋 What You Should Know</h4>
         <div className="space-y-3">
@@ -510,7 +578,6 @@ const UserSafetyTab = ({ report }: { report: PubGuardReport }) => {
         </div>
       </div>
 
-      {/* Simple Checklist */}
       <div>
         <h4 className="text-lg font-semibold text-white mb-3">✅ Before You Install</h4>
         <div className="space-y-2">
@@ -532,12 +599,10 @@ const UserSafetyTab = ({ report }: { report: PubGuardReport }) => {
   );
 };
 
-// ANALYST: Technical deep-dive tab
 const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
   <div className="space-y-6">
     <h3 className="text-xl font-semibold text-white mb-4">🔍 Technical Analysis</h3>
 
-    {/* Repository Metrics */}
     {report.github && (
       <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-amber-400 mb-3">📊 Repository Metrics</h4>
@@ -560,7 +625,6 @@ const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
           </div>
         </div>
 
-        {/* Temporal Analysis */}
         <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
           <div>
             <span className="text-slate-500">Created:</span>
@@ -591,7 +655,6 @@ const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
       </div>
     )}
 
-    {/* CVE Analysis */}
     <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
       <h4 className="text-lg font-semibold text-red-400 mb-3">🛡️ CVE / Vulnerability Data</h4>
       {report.cve?.vulnerabilities?.length > 0 ? (
@@ -618,7 +681,6 @@ const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
       )}
     </div>
 
-    {/* Permission Matrix */}
     {report.github?.permissions && (
       <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-purple-400 mb-3">🔐 Permission Matrix</h4>
@@ -634,7 +696,6 @@ const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
       </div>
     )}
 
-    {/* Security Tests Results */}
     {report.securityTests && (
       <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
         <h4 className="text-lg font-semibold text-blue-400 mb-3">🧪 Automated Security Tests</h4>
@@ -653,7 +714,6 @@ const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
       </div>
     )}
 
-    {/* Raw Data Export */}
     <div className="flex gap-3">
       <button
         onClick={() => {
@@ -694,7 +754,6 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
   const config = USER_TYPE_CONFIG[userType];
   const [activeTab, setActiveTab] = useState<string>(config.primaryTabs[0]);
 
-  // Build tabs based on user type
   const allTabs = [
     { id: 'summary', label: 'Summary', icon: '📊' },
     { id: 'findings', label: `Findings (${Object.values(report.findings).flat().length})`, icon: '🔎' },
@@ -794,7 +853,6 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
 
       {/* Tab Content */}
       <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
-        {/* Summary Tab */}
         {activeTab === 'summary' && (
           <div className="space-y-4">
             <h3 className="text-xl font-semibold text-white mb-4">📊 Risk Score Breakdown</h3>
@@ -808,7 +866,6 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
           </div>
         )}
 
-        {/* Findings Tab */}
         {activeTab === 'findings' && (
           <div className="space-y-6">
             {report.findings.critical.length > 0 && (
@@ -846,7 +903,6 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
           </div>
         )}
 
-        {/* Sources Tab */}
         {activeTab === 'sources' && (
           <div>
             <h3 className="text-xl font-semibold text-white mb-4">📚 Sources Checked</h3>
@@ -884,7 +940,6 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
           </div>
         )}
 
-        {/* User-Type Specific Tabs */}
         {activeTab === 'guidance' && config.showWriterGuidance && (
           <WriterGuidanceTab report={report} />
         )}
@@ -913,9 +968,15 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
 
       {/* Actions */}
       <div className="mt-6 flex gap-3 flex-wrap">
-        <button onClick={onNewScan} className="px-6 py-3 bg-white/5 text-slate-300 rounded-xl hover:bg-white/10 transition-colors">
+        <button
+          onClick={onNewScan}
+          className="px-6 py-3 bg-white/5 text-slate-300 rounded-xl hover:bg-white/10 transition-colors"
+        >
           ← New Scan
         </button>
+
+        <PDFDownloadButton report={report} userType={userType} />
+
         <button
           onClick={() => {
             const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
@@ -929,7 +990,11 @@ export default function PubGuardReportDisplay({ report, userType, onNewScan }: P
         >
           📥 Download JSON
         </button>
-        <button onClick={() => window.print()} className={`px-6 py-3 rounded-xl transition-colors ${config.bgColor} ${config.color} border ${config.borderColor} hover:opacity-80`}>
+
+        <button
+          onClick={() => window.print()}
+          className={`px-6 py-3 rounded-xl transition-colors ${config.bgColor} ${config.color} border ${config.borderColor} hover:opacity-80`}
+        >
           🖨️ Print Report
         </button>
       </div>
