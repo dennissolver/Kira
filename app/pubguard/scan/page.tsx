@@ -6,6 +6,8 @@ import Image from 'next/image';
 import { Shield, Search, ArrowLeft, Volume2, VolumeX, Mic, User, Pencil, Code, FlaskConical, FileSearch } from 'lucide-react';
 import PubGuardScanProgress from '@/components/PubGuardScanProgress';
 import PubGuardReportDisplay from '@/components/PubGuardReport';
+import PubGuardMethodology from '@/components/PubGuardMethodology';
+import { WriterReport, DeveloperReport, UserReport, AnalystReport } from '@/components/UserTypeReports';
 import { useConversation } from '@elevenlabs/react';
 
 type ViewState = 'input' | 'scanning' | 'report';
@@ -49,16 +51,16 @@ const USER_TYPES: UserTypeOption[] = [
 // Generate Kira's spoken summary tailored to user type
 function generateKiraSummary(report: any, userType: UserType): string {
   const { trafficLight, overallRiskScore, target, findings, writerGuidance } = report;
-  
+
   const totalCritical = findings.critical?.length || 0;
   const totalHigh = findings.high?.length || 0;
   const totalMedium = findings.medium?.length || 0;
   const totalPositive = findings.positive?.length || 0;
-  
+
   let intro = '';
   let details = '';
   let recommendation = '';
-  
+
   // User-type specific greeting
   const greetings: Record<UserType, string> = {
     writer: `I've completed the security scan of ${target.name} for your article.`,
@@ -66,9 +68,9 @@ function generateKiraSummary(report: any, userType: UserType): string {
     user: `I've checked ${target.name} to help you decide if it's safe to use.`,
     analyst: `Security assessment complete for ${target.name}.`,
   };
-  
+
   intro = greetings[userType];
-  
+
   // Rating info
   if (trafficLight === 'red') {
     intro += ` This software has a RED rating with a risk score of ${overallRiskScore} out of 100.`;
@@ -77,15 +79,15 @@ function generateKiraSummary(report: any, userType: UserType): string {
   } else {
     intro += ` Good news - it has a GREEN rating with a risk score of just ${overallRiskScore} out of 100.`;
   }
-  
+
   // Key findings
   if (totalCritical > 0 || totalHigh > 0) {
     const criticalText = totalCritical > 0 ? `${totalCritical} critical` : '';
     const highText = totalHigh > 0 ? `${totalHigh} high severity` : '';
     const connector = criticalText && highText ? ' and ' : '';
-    
+
     details = ` I found ${criticalText}${connector}${highText} issues. `;
-    
+
     const topFinding = findings.critical?.[0] || findings.high?.[0];
     if (topFinding) {
       details += `The most serious concern is: ${topFinding.title}. `;
@@ -95,7 +97,7 @@ function generateKiraSummary(report: any, userType: UserType): string {
   } else if (totalPositive > 0) {
     details = ` I found ${totalPositive} positive security indicators. `;
   }
-  
+
   // User-type specific recommendations
   if (userType === 'writer') {
     if (writerGuidance?.canRecommend === false) {
@@ -124,7 +126,7 @@ function generateKiraSummary(report: any, userType: UserType): string {
   } else if (userType === 'analyst') {
     recommendation = `I can provide detailed technical breakdowns of each finding for your report. The full data is available in the report below.`;
   }
-  
+
   return `${intro}${details}${recommendation} Would you like me to explain any of the findings in more detail?`;
 }
 
@@ -193,12 +195,36 @@ The user is a SECURITY ANALYST conducting expert analysis for a report.
 Answer follow-up questions about this security report. Be concise, helpful, and tailored to their role.`;
 }
 
+// User-Type Specific Report Section
+function UserTypeReportSection({ report, userType }: { report: any; userType: UserType }) {
+  const userTypeLabels: Record<UserType, string> = {
+    writer: '📝 Writer View',
+    developer: '🔧 Developer View',
+    user: '👤 User View',
+    analyst: '🔬 Analyst View',
+  };
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-lg">{userTypeLabels[userType]}</span>
+        <span className="text-slate-500 text-sm">— Personalized for your needs</span>
+      </div>
+
+      {userType === 'writer' && <WriterReport report={report} />}
+      {userType === 'developer' && <DeveloperReport report={report} />}
+      {userType === 'user' && <UserReport report={report} />}
+      {userType === 'analyst' && <AnalystReport report={report} />}
+    </div>
+  );
+}
+
 // Kira Voice Component
-function KiraVoiceNarrator({ 
-  report, 
+function KiraVoiceNarrator({
+  report,
   userType,
-  autoStart = true 
-}: { 
+  autoStart = true
+}: {
   report: any;
   userType: UserType;
   autoStart?: boolean;
@@ -206,7 +232,7 @@ function KiraVoiceNarrator({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasStarted = useRef(false);
-  
+
   const conversation = useConversation({
     onConnect: () => {
       console.log('[Kira] Connected');
@@ -236,29 +262,16 @@ function KiraVoiceNarrator({
     try {
       setError(null);
       setIsSpeaking(true);
-      
-      const agentId = process.env.NEXT_PUBLIC_PUBGUARD_KIRA_AGENT_ID;
-      
-      if (!agentId) {
-        await speakWithTTS(generateKiraSummary(report, userType));
-        return;
-      }
-      
-      await conversation.startSession({
-        agentId,
-        connectionType: 'webrtc' as const,
-        overrides: {
-          agent: {
-            firstMessage: generateKiraSummary(report, userType),
-            prompt: {
-              prompt: generateKiraPrompt(report, userType),
-            },
-          },
-        },
-      });
+
+      // Use TTS directly for now - conversational agent has SDK compatibility issues
+      // TODO: Re-enable conversational agent once ElevenLabs SDK issue is resolved
+      console.log('[Kira] Using TTS mode');
+      await speakWithTTS(generateKiraSummary(report, userType));
+
     } catch (err) {
       console.error('[Kira] Start error:', err);
-      await speakWithTTS(generateKiraSummary(report, userType));
+      setIsSpeaking(false);
+      setError('Voice narration failed. Please try again.');
     }
   };
 
@@ -276,14 +289,14 @@ function KiraVoiceNarrator({
     try {
       const voiceId = process.env.NEXT_PUBLIC_KIRA_VOICE_ID || 'M7ya1YbaeFaPXljg9BpK'; // Hannah
       const apiKey = process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY;
-      
+
       if (!apiKey) {
         console.log('[Kira] No API key, skipping voice');
         setError('Voice not configured');
         setIsSpeaking(false);
         return;
       }
-      
+
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
         method: 'POST',
         headers: {
@@ -299,23 +312,23 @@ function KiraVoiceNarrator({
           },
         }),
       });
-      
+
       if (!response.ok) throw new Error('TTS failed');
-      
+
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
-      
+
       audio.onended = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
       };
-      
+
       audio.onerror = () => {
         setIsSpeaking(false);
         setError('Audio playback failed');
       };
-      
+
       await audio.play();
     } catch (err) {
       console.error('[Kira] TTS error:', err);
@@ -338,7 +351,7 @@ function KiraVoiceNarrator({
           priority
         />
       </div>
-      
+
       {/* Status */}
       <div className="flex-1">
         <div className="flex items-center gap-2">
@@ -356,7 +369,7 @@ function KiraVoiceNarrator({
         </div>
         <p className="text-sm text-slate-400">Security Analyst</p>
       </div>
-      
+
       {/* Voice Toggle */}
       <button
         onClick={isSpeaking ? stopNarration : startNarration}
@@ -418,9 +431,9 @@ export default function PubGuardScanPage() {
                 dennis@corporateaisolutions.com
               </a>
               <span className="text-slate-600">|</span>
-              <a 
-                href="https://www.calendly.com/mcmdennis" 
-                target="_blank" 
+              <a
+                href="https://www.calendly.com/mcmdennis"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white transition-colors"
               >
@@ -515,10 +528,10 @@ export default function PubGuardScanPage() {
             {/* Disclaimer */}
             <div className="mb-6 p-3 bg-slate-800/50 rounded-lg border border-slate-700">
               <p className="text-xs text-slate-400 leading-relaxed">
-                <span className="text-amber-500 font-medium">Disclaimer:</span> PubGuard scans are performed in good faith using automated analysis. 
-                Results are informational only and do not constitute professional security advice. 
-                Users must conduct their own due diligence before using any software. 
-                By using this service, you accept full responsibility for your own decisions. 
+                <span className="text-amber-500 font-medium">Disclaimer:</span> PubGuard scans are performed in good faith using automated analysis.
+                Results are informational only and do not constitute professional security advice.
+                Users must conduct their own due diligence before using any software.
+                By using this service, you accept full responsibility for your own decisions.
                 No liability is assumed for any outcomes resulting from software assessed here.
               </p>
             </div>
@@ -585,18 +598,18 @@ export default function PubGuardScanPage() {
           <footer className="mt-12 pt-8 border-t border-slate-800">
             <div className="text-center mb-6">
               <p className="text-slate-500 text-sm mb-2">This service brought to you by</p>
-              <a 
-                href="https://www.corporateaisolutions.com" 
-                target="_blank" 
+              <a
+                href="https://www.corporateaisolutions.com"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="text-xl font-bold text-white hover:text-red-400 transition-colors"
               >
                 Corporate AI Solutions
               </a>
               <p className="text-slate-400 text-sm mt-1">
-                <a 
-                  href="https://www.corporateaisolutions.com" 
-                  target="_blank" 
+                <a
+                  href="https://www.corporateaisolutions.com"
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-red-400 transition-colors"
                 >
@@ -604,7 +617,7 @@ export default function PubGuardScanPage() {
                 </a>
               </p>
             </div>
-            
+
             <div className="bg-slate-900/50 rounded-xl p-6 border border-slate-800">
               <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 text-center">
                 Contact
@@ -612,9 +625,9 @@ export default function PubGuardScanPage() {
               <div className="flex flex-col items-center gap-3 text-sm">
                 <p className="text-white font-medium">Dennis McMahon</p>
                 <div className="flex flex-wrap justify-center gap-4 text-slate-400">
-                  <a 
-                    href="https://www.linkedin.com/in/denniskl/" 
-                    target="_blank" 
+                  <a
+                    href="https://www.linkedin.com/in/denniskl/"
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 hover:text-red-400 transition-colors"
                   >
@@ -623,7 +636,7 @@ export default function PubGuardScanPage() {
                     </svg>
                     LinkedIn
                   </a>
-                  <a 
+                  <a
                     href="tel:+61402612471"
                     className="flex items-center gap-2 hover:text-red-400 transition-colors"
                   >
@@ -632,7 +645,7 @@ export default function PubGuardScanPage() {
                     </svg>
                     +61 402 612 471
                   </a>
-                  <a 
+                  <a
                     href="https://wa.me/61402612471"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -643,7 +656,7 @@ export default function PubGuardScanPage() {
                     </svg>
                     WhatsApp
                   </a>
-                  <a 
+                  <a
                     href="mailto:dennis@corporateaisolutions.com"
                     className="flex items-center gap-2 hover:text-red-400 transition-colors"
                   >
@@ -655,7 +668,7 @@ export default function PubGuardScanPage() {
                 </div>
               </div>
             </div>
-            
+
             <p className="text-center text-slate-600 text-xs mt-6">
               © {new Date().getFullYear()} Corporate AI Solutions. All rights reserved.
             </p>
@@ -688,9 +701,9 @@ export default function PubGuardScanPage() {
                 dennis@corporateaisolutions.com
               </a>
               <span className="text-slate-600">|</span>
-              <a 
-                href="https://www.calendly.com/mcmdennis" 
-                target="_blank" 
+              <a
+                href="https://www.calendly.com/mcmdennis"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white transition-colors"
               >
@@ -729,7 +742,7 @@ export default function PubGuardScanPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-3xl">
-                  {report.trafficLight === 'green' ? '🟢' : 
+                  {report.trafficLight === 'green' ? '🟢' :
                    report.trafficLight === 'amber' ? '🟠' : '🔴'}
                 </span>
                 <span className={`text-lg font-bold uppercase ${
@@ -752,10 +765,25 @@ export default function PubGuardScanPage() {
 
         {/* Report Content */}
         <div className="max-w-4xl mx-auto px-6 py-8">
-          <PubGuardReportDisplay 
-            report={report} 
-            onNewScan={handleNewScan}
-          />
+          {/* User-Type Specific Report Section */}
+          <UserTypeReportSection report={report} userType={userType} />
+
+          {/* Full Technical Report */}
+          <details className="mb-8">
+            <summary className="cursor-pointer text-slate-400 hover:text-white transition-colors py-2 flex items-center gap-2">
+              <span>📋 Full Technical Report</span>
+              <span className="text-xs text-slate-500">(click to expand)</span>
+            </summary>
+            <div className="mt-4">
+              <PubGuardReportDisplay
+                report={report}
+                onNewScan={handleNewScan}
+              />
+            </div>
+          </details>
+
+          {/* Methodology & FAQ Section */}
+          <PubGuardMethodology />
         </div>
       </main>
     );
