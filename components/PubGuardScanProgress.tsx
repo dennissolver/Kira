@@ -24,6 +24,7 @@ import {
   UserCheck,
   Wrench,
 } from 'lucide-react';
+import { KiraMiniAttribution, PoweredByKira } from './KiraBranding';
 
 /* ============================================================================
  * TYPES
@@ -562,6 +563,9 @@ export default function PubGuardScanProgress({ targetUrl, userType = 'user', onC
 
         {/* HEADER */}
         <div className="text-center mb-6">
+          <div className="flex justify-center mb-3">
+            <PoweredByKira />
+          </div>
           <div className="flex items-center justify-center gap-3 mb-2">
             <Search className="w-8 h-8 text-red-400" />
             <h1 className="text-2xl font-bold text-white">
@@ -739,6 +743,11 @@ export default function PubGuardScanProgress({ targetUrl, userType = 'user', onC
             )}
           </div>
         )}
+
+        {/* Attribution */}
+        <div className="mt-6 pt-4 border-t border-slate-800 text-center">
+          <KiraMiniAttribution />
+        </div>
 
       </div>
     </div>

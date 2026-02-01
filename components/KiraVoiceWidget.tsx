@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useConversation } from '@elevenlabs/react';
 
 type UserType = 'writer' | 'developer' | 'user' | 'analyst';
@@ -19,6 +19,10 @@ interface KiraVoiceWidgetProps {
   onScanComplete?: (result: any) => void;
   position?: 'bottom-right' | 'bottom-left' | 'inline';
   theme?: 'dark' | 'light';
+  // Auto-speak props
+  autoSpeak?: boolean;
+  autoSpeakMessage?: string;
+  onAutoSpeakComplete?: () => void;
 }
 
 // User type visual configuration
@@ -82,12 +86,25 @@ export default function KiraVoiceWidget({
   onScanComplete,
   position = 'bottom-right',
   theme = 'dark',
+  autoSpeak = false,
+  autoSpeakMessage,
+  onAutoSpeakComplete,
 }: KiraVoiceWidgetProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(autoSpeak); // Auto-open if autoSpeak
   const [transcript, setTranscript] = useState<{ role: string; text: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [hasAutoSpoken, setHasAutoSpoken] = useState(false);
 
   const config = USER_TYPE_CONFIG[userType];
+
+  // Auto-speak effect - connect and speak when autoSpeak is true
+  useEffect(() => {
+    if (autoSpeak && autoSpeakMessage && !hasAutoSpoken) {
+      setIsOpen(true);
+      setHasAutoSpoken(true);
+      // The conversation will start automatically when isOpen changes
+    }
+  }, [autoSpeak, autoSpeakMessage, hasAutoSpoken]);
 
   // Initialize conversation with useConversation hook
   const conversation = useConversation({
@@ -129,27 +146,40 @@ export default function KiraVoiceWidget({
   const startConversation = useCallback(async () => {
     try {
       setError(null);
-      await conversation.startSession({
-        agentId,
-        connectionType: 'websocket', // Required: 'websocket' or 'webrtc'
-        // Pass userType via overrides
-        overrides: {
-          agent: {
-            prompt: {
-              prompt: `You are speaking with a ${userType}. Tailor your responses accordingly:
+
+      // Build prompt with auto-speak message if provided
+      const basePrompt = `You are speaking with a ${userType}. Tailor your responses accordingly:
 - writer: Focus on liability, disclosures, reader safety
 - developer: Focus on actionable fixes, security checklist
 - user: Keep it simple, focus on "is it safe?"
-- analyst: Full technical details, CVEs, IOCs`,
+- analyst: Full technical details, CVEs, IOCs`;
+
+      const promptWithAutoSpeak = autoSpeak && autoSpeakMessage
+        ? `${basePrompt}\n\nIMPORTANT: Start the conversation by saying this summary: "${autoSpeakMessage}"`
+        : basePrompt;
+
+      await conversation.startSession({
+        agentId,
+        connectionType: 'websocket',
+        overrides: {
+          agent: {
+            prompt: {
+              prompt: promptWithAutoSpeak,
             },
+            firstMessage: autoSpeak && autoSpeakMessage ? autoSpeakMessage : undefined,
           },
         },
       });
+
+      // Call onAutoSpeakComplete after starting
+      if (autoSpeak && onAutoSpeakComplete) {
+        setTimeout(() => onAutoSpeakComplete(), 1000);
+      }
     } catch (err) {
       console.error('Failed to start conversation:', err);
       setError('Failed to connect. Please try again.');
     }
-  }, [conversation, agentId, userType]);
+  }, [conversation, agentId, userType, autoSpeak, autoSpeakMessage, onAutoSpeakComplete]);
 
   // End conversation
   const endConversation = useCallback(async () => {
