@@ -29,7 +29,7 @@ import {
  * TYPES
  * ==========================================================================*/
 
-type TestState = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'WARNING' | 'SKIPPED' | 'PRIVATE';
+type TestState = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'WARNING' | 'SKIPPED';
 
 type TestName =
   | 'github'
@@ -53,7 +53,6 @@ interface TestConfig {
   icon: React.ReactNode;
   category: 'analysis' | 'security-test' | 'final';
   description: Record<TestState, string>;
-  requiresRepoAccess?: boolean;  // True if test needs to read repo files
 }
 
 interface ScanProgress {
@@ -61,28 +60,25 @@ interface ScanProgress {
   completedTests: TestName[];
   failedTests: TestName[];
   warningTests: TestName[];
-  skippedTests: TestName[];  // For private repo skipped tests
   testResults: Record<string, { passed: boolean; message: string }>;
   overallProgress: number;
   status: 'running' | 'complete' | 'failed';
   trafficLight?: 'green' | 'amber' | 'red';
   riskScore?: number;
   error?: string;
-  isPrivateRepo?: boolean;
 }
 
 /* ============================================================================
- * TEST CONFIG
+ * TEST CONFIG - 14 Tests in 3 Phases
  * ==========================================================================*/
 
 const TESTS: TestConfig[] = [
-  // Analysis Phase
+  // Phase 1: Data Collection
   {
     id: 'github',
     label: 'GitHub Analysis',
     icon: <Github className="w-5 h-5" />,
     category: 'analysis',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting to start...',
       RUNNING: 'Analyzing repository, README, commits...',
@@ -90,7 +86,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'GitHub analysis failed',
       WARNING: 'Partial data retrieved',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot access',
     },
   },
   {
@@ -98,7 +93,6 @@ const TESTS: TestConfig[] = [
     label: 'CVE Database',
     icon: <Shield className="w-5 h-5" />,
     category: 'analysis',
-    requiresRepoAccess: false,
     description: {
       PENDING: 'Waiting for GitHub analysis...',
       RUNNING: 'Searching NVD for vulnerabilities...',
@@ -106,7 +100,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'CVE search failed',
       WARNING: 'CVEs found!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Searching by project name...',
     },
   },
   {
@@ -114,7 +107,6 @@ const TESTS: TestConfig[] = [
     label: 'Security News',
     icon: <Newspaper className="w-5 h-5" />,
     category: 'analysis',
-    requiresRepoAccess: false,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Scanning security news sources...',
@@ -122,7 +114,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'News search failed',
       WARNING: 'Security warnings found!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Scanning news sources...',
     },
   },
   {
@@ -130,7 +121,6 @@ const TESTS: TestConfig[] = [
     label: 'Social Signals',
     icon: <Users className="w-5 h-5" />,
     category: 'analysis',
-    requiresRepoAccess: false,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking researcher warnings...',
@@ -138,17 +128,15 @@ const TESTS: TestConfig[] = [
       FAILED: 'Social scan failed',
       WARNING: 'Expert warnings found!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Checking researcher warnings...',
     },
   },
 
-  // Security Tests (Expert Methodology)
+  // Phase 2: Security Tests (Expert Methodology)
   {
     id: 'test-credentials',
     label: 'Credential Storage',
     icon: <Key className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking for plaintext secrets...',
@@ -156,7 +144,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Insecure credential storage detected!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
   {
@@ -164,7 +151,6 @@ const TESTS: TestConfig[] = [
     label: 'Permission Scope',
     icon: <Lock className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Auditing required permissions...',
@@ -172,7 +158,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Dangerous permissions required!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
   {
@@ -180,7 +165,6 @@ const TESTS: TestConfig[] = [
     label: 'Prompt Injection Risk',
     icon: <Syringe className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Assessing injection vulnerabilities...',
@@ -188,7 +172,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'High prompt injection risk!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
   {
@@ -196,7 +179,6 @@ const TESTS: TestConfig[] = [
     label: 'Supply Chain',
     icon: <Package className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking third-party risks...',
@@ -204,7 +186,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Supply chain risks detected!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
   {
@@ -212,7 +193,6 @@ const TESTS: TestConfig[] = [
     label: 'Config Defaults',
     icon: <Settings className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking default configurations...',
@@ -220,7 +200,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Insecure defaults detected!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
   {
@@ -228,7 +207,6 @@ const TESTS: TestConfig[] = [
     label: 'Internet Exposure',
     icon: <Globe className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: false,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Scanning for exposed instances...',
@@ -236,7 +214,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Exposed instances found!',
       SKIPPED: 'Shodan API not configured',
-      PRIVATE: 'Scanning for exposed instances...',
     },
   },
   {
@@ -244,7 +221,6 @@ const TESTS: TestConfig[] = [
     label: 'Identity Stability',
     icon: <UserCheck className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking for renames/rebrands...',
@@ -252,7 +228,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Project has been renamed!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
   {
@@ -260,7 +235,6 @@ const TESTS: TestConfig[] = [
     label: 'Maintainer Response',
     icon: <Wrench className="w-5 h-5" />,
     category: 'security-test',
-    requiresRepoAccess: true,
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking security issue response...',
@@ -268,17 +242,15 @@ const TESTS: TestConfig[] = [
       FAILED: 'Test error',
       WARNING: 'Slow security response!',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Private repo - cannot analyze',
     },
   },
 
-  // Final Phase
+  // Phase 3: Final
   {
     id: 'scoring',
     label: 'Risk Scoring',
     icon: <FlaskConical className="w-5 h-5" />,
     category: 'final',
-    requiresRepoAccess: false,
     description: {
       PENDING: 'Waiting for all tests...',
       RUNNING: 'Calculating risk scores...',
@@ -286,7 +258,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Scoring failed',
       WARNING: 'Scoring complete',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Limited scoring (private repo)',
     },
   },
   {
@@ -294,7 +265,6 @@ const TESTS: TestConfig[] = [
     label: 'Generate Report',
     icon: <FileText className="w-5 h-5" />,
     category: 'final',
-    requiresRepoAccess: false,
     description: {
       PENDING: 'Waiting for scoring...',
       RUNNING: 'Building comprehensive report...',
@@ -302,7 +272,6 @@ const TESTS: TestConfig[] = [
       FAILED: 'Report generation failed',
       WARNING: 'Report ready',
       SKIPPED: 'Skipped',
-      PRIVATE: 'Limited report (private repo)',
     },
   },
 ];
@@ -311,19 +280,7 @@ const TESTS: TestConfig[] = [
  * HELPERS
  * ==========================================================================*/
 
-function getTestState(progress: ScanProgress, testId: TestName, testConfig: TestConfig): TestState {
-  // Check if this test was skipped due to private repo
-  if (progress.isPrivateRepo && testConfig.requiresRepoAccess) {
-    if (progress.skippedTests?.includes(testId)) return 'PRIVATE';
-    // If we haven't processed it yet but repo is private, show PRIVATE
-    if (!progress.completedTests.includes(testId) && 
-        !progress.failedTests.includes(testId) && 
-        progress.currentTest !== testId) {
-      return 'PRIVATE';
-    }
-  }
-  
-  if (progress.skippedTests?.includes(testId)) return 'SKIPPED';
+function getTestState(progress: ScanProgress, testId: TestName): TestState {
   if (progress.failedTests.includes(testId)) return 'FAILED';
   if (progress.warningTests.includes(testId)) return 'WARNING';
   if (progress.completedTests.includes(testId)) return 'PASSED';
@@ -338,7 +295,6 @@ function getStateColor(state: TestState): string {
     case 'WARNING': return 'bg-amber-500';
     case 'RUNNING': return 'bg-blue-500';
     case 'SKIPPED': return 'bg-slate-600';
-    case 'PRIVATE': return 'bg-purple-600';
     default: return 'bg-slate-700';
   }
 }
@@ -350,7 +306,6 @@ function getStateBgColor(state: TestState): string {
     case 'WARNING': return 'bg-amber-500/20 text-amber-400';
     case 'RUNNING': return 'bg-blue-500/20 text-blue-400';
     case 'SKIPPED': return 'bg-slate-600/20 text-slate-500';
-    case 'PRIVATE': return 'bg-purple-600/20 text-purple-400';
     default: return 'bg-slate-700/20 text-slate-500';
   }
 }
@@ -360,9 +315,8 @@ function getStateProgress(state: TestState): number {
     case 'PASSED':
     case 'WARNING':
     case 'SKIPPED':
-    case 'PRIVATE':
+    case 'FAILED':
       return 100;
-    case 'FAILED': return 100;
     case 'RUNNING': return 50;
     default: return 0;
   }
@@ -385,26 +339,24 @@ function getTrafficLightColor(light: 'green' | 'amber' | 'red'): string {
 }
 
 /* ============================================================================
- * TEST ROW COMPONENT
+ * TEST ROW COMPONENT - The visual row for each test
  * ==========================================================================*/
 
-function TestRow({ test, state, result }: { 
-  test: TestConfig; 
+function TestRow({ test, state, result }: {
+  test: TestConfig;
   state: TestState;
   result?: { passed: boolean; message: string };
 }) {
   const isActive = state === 'RUNNING';
-  const isComplete = state === 'PASSED' || state === 'WARNING' || state === 'SKIPPED' || state === 'PRIVATE';
+  const isComplete = state === 'PASSED' || state === 'WARNING' || state === 'SKIPPED';
   const isFailed = state === 'FAILED';
   const isWarning = state === 'WARNING';
-  const isPrivate = state === 'PRIVATE';
 
   return (
     <div className="flex items-center gap-4 py-3 border-b border-slate-800 last:border-0">
-      {/* Icon */}
-      <div className={`p-2 rounded-lg ${getStateBgColor(state)}`}>
-        {isPrivate ? <Lock className="w-5 h-5" /> :
-         isComplete && !isWarning ? <CheckCircle2 className="w-5 h-5" /> :
+      {/* Icon with state color */}
+      <div className={`p-2 rounded-lg ${getStateBgColor(state)} transition-all duration-300`}>
+        {isComplete && !isWarning ? <CheckCircle2 className="w-5 h-5" /> :
          isWarning ? <AlertTriangle className="w-5 h-5" /> :
          isFailed ? <XCircle className="w-5 h-5" /> :
          isActive ? <Loader2 className="w-5 h-5 animate-spin" /> :
@@ -414,9 +366,9 @@ function TestRow({ test, state, result }: {
       {/* Label & Description */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className={`font-medium ${isPrivate ? 'text-slate-400' : 'text-white'}`}>{test.label}</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${getStateBgColor(state)}`}>
-            {isPrivate ? 'PRIVATE' : state}
+          <span className="font-medium text-white">{test.label}</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${getStateBgColor(state)} transition-all duration-300`}>
+            {state}
           </span>
         </div>
         <p className="text-sm text-slate-400 truncate">
@@ -441,26 +393,25 @@ function TestRow({ test, state, result }: {
 
 interface Props {
   targetUrl: string;
+  userType?: 'writer' | 'developer' | 'user' | 'analyst';
   onComplete: (report: any) => void;
   onCancel?: () => void;
 }
 
-export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }: Props) {
+export default function PubGuardScanProgress({ targetUrl, userType = 'user', onComplete, onCancel }: Props) {
   const [progress, setProgress] = useState<ScanProgress>({
     currentTest: null,
     completedTests: [],
     failedTests: [],
     warningTests: [],
-    skippedTests: [],
     testResults: {},
     overallProgress: 0,
     status: 'running',
-    isPrivateRepo: false,
   });
   const [elapsed, setElapsed] = useState(0);
   const [report, setReport] = useState<any>(null);
 
-  // Simulate scan progress (in real implementation, this would poll an API or use SSE)
+  // Run the scan with visual progress
   const runScan = useCallback(async () => {
     const testOrder: TestName[] = [
       'github', 'cve', 'news', 'social',
@@ -470,12 +421,20 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
     ];
 
     try {
+      // Start first test immediately for visual feedback
+      setProgress(prev => ({
+        ...prev,
+        currentTest: 'github',
+        overallProgress: 5,
+      }));
+
       // Call the actual v2 scan API
       const response = await fetch('/api/pubguard/v2/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           url: targetUrl,
+          userType,
           includeSocialSignals: true,
           includeSecurityTests: true,
         }),
@@ -486,40 +445,44 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
       }
 
       const reportData = await response.json();
-      
-      // Simulate progressive updates for UX (the API returns all at once)
+
+      // Animate through tests progressively (API returns all at once, we show progress)
       for (let i = 0; i < testOrder.length; i++) {
         const testId = testOrder[i];
-        
+
+        // Show test as running
         setProgress(prev => ({
           ...prev,
           currentTest: testId,
-          overallProgress: Math.round((i / testOrder.length) * 100),
+          overallProgress: Math.round(((i + 0.5) / testOrder.length) * 100),
         }));
 
-        // Small delay for visual effect
-        await new Promise(r => setTimeout(r, 150));
+        // Delay for visual effect - faster for data collection, slower for security tests
+        const delay = testId.startsWith('test-') ? 200 : 150;
+        await new Promise(r => setTimeout(r, delay));
 
         // Determine if this test found issues
         const hasWarning = checkForWarning(testId, reportData);
-        
+
+        // Mark test as complete
         setProgress(prev => ({
           ...prev,
           completedTests: [...prev.completedTests, testId],
           warningTests: hasWarning ? [...prev.warningTests, testId] : prev.warningTests,
-          currentTest: i < testOrder.length - 1 ? testOrder[i + 1] : null,
+          overallProgress: Math.round(((i + 1) / testOrder.length) * 100),
         }));
       }
 
-      // Complete
+      // Final state
       setProgress(prev => ({
         ...prev,
+        currentTest: null,
         status: 'complete',
         overallProgress: 100,
         trafficLight: reportData.trafficLight,
         riskScore: reportData.overallRiskScore,
       }));
-      
+
       setReport(reportData);
 
     } catch (error) {
@@ -529,7 +492,7 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
         error: error instanceof Error ? error.message : 'Scan failed',
       }));
     }
-  }, [targetUrl]);
+  }, [targetUrl, userType]);
 
   // Check if a test found warnings based on report data
   function checkForWarning(testId: TestName, report: any): boolean {
@@ -551,12 +514,12 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
         // Check findings for this category
         const category = testId.replace('test-', '');
         const allFindings = [
-          ...report.findings.critical,
-          ...report.findings.high,
-          ...report.findings.medium,
+          ...(report.findings?.critical || []),
+          ...(report.findings?.high || []),
+          ...(report.findings?.medium || []),
         ];
-        return allFindings.some((f: any) => 
-          f.title?.toLowerCase().includes(category) || 
+        return allFindings.some((f: any) =>
+          f.title?.toLowerCase().includes(category) ||
           f.category?.toLowerCase().includes(category)
         );
       default:
@@ -564,10 +527,12 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
     }
   }
 
+  // Start scan on mount
   useEffect(() => {
     runScan();
   }, [runScan]);
 
+  // Elapsed time counter
   useEffect(() => {
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
     return () => clearInterval(t);
@@ -578,10 +543,12 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
   const isComplete = progress.status === 'complete';
   const isFailed = progress.status === 'failed';
 
+  // Group tests by phase
   const analysisTasks = TESTS.filter(t => t.category === 'analysis');
   const securityTests = TESTS.filter(t => t.category === 'security-test');
   const finalTasks = TESTS.filter(t => t.category === 'final');
 
+  // Counts for summary
   const counts = {
     passed: progress.completedTests.filter(t => !progress.warningTests.includes(t)).length,
     warnings: progress.warningTests.length,
@@ -590,18 +557,18 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-8">
-      <div className="bg-slate-900 rounded-2xl p-8 max-w-3xl w-full">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 md:p-8">
+      <div className="bg-slate-900 rounded-2xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-800">
 
         {/* HEADER */}
         <div className="text-center mb-6">
           <div className="flex items-center justify-center gap-3 mb-2">
             <Search className="w-8 h-8 text-red-400" />
             <h1 className="text-2xl font-bold text-white">
-              {isComplete 
-                ? `${getTrafficLightEmoji(progress.trafficLight!)} Scan Complete` 
-                : isFailed 
-                  ? '❌ Scan Failed' 
+              {isComplete
+                ? `${getTrafficLightEmoji(progress.trafficLight!)} Scan Complete`
+                : isFailed
+                  ? '❌ Scan Failed'
                   : '🔍 Scanning...'}
             </h1>
           </div>
@@ -610,7 +577,7 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
           </p>
         </div>
 
-        {/* TRAFFIC LIGHT RESULT */}
+        {/* TRAFFIC LIGHT RESULT (shown when complete) */}
         {isComplete && progress.trafficLight && (
           <div className={`mb-6 p-6 rounded-xl bg-gradient-to-r ${getTrafficLightColor(progress.trafficLight)} bg-opacity-20`}>
             <div className="flex items-center justify-between">
@@ -631,7 +598,7 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
           </div>
         )}
 
-        {/* OVERALL PROGRESS */}
+        {/* OVERALL PROGRESS BAR */}
         {!isComplete && (
           <div className="mb-6">
             <div className="flex justify-between text-sm mb-2">
@@ -675,7 +642,7 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
           </div>
         )}
 
-        {/* ANALYSIS PHASE */}
+        {/* PHASE 1: DATA COLLECTION */}
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
             📊 Data Collection
@@ -685,38 +652,31 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
               <TestRow
                 key={test.id}
                 test={test}
-                state={getTestState(progress, test.id, test)}
+                state={getTestState(progress, test.id)}
                 result={progress.testResults[test.id]}
               />
             ))}
           </div>
         </div>
 
-        {/* SECURITY TESTS */}
+        {/* PHASE 2: SECURITY TESTS */}
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
             🔬 Security Tests (Expert Methodology)
           </h3>
-          {progress.isPrivateRepo && (
-            <div className="mb-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
-              <p className="text-sm text-purple-300">
-                🔒 <strong>Private Repository:</strong> Source code analysis tests cannot be performed. Only external checks (CVE, News, Exposure) are available.
-              </p>
-            </div>
-          )}
           <div className="bg-slate-800/50 rounded-xl p-4">
             {securityTests.map(test => (
               <TestRow
                 key={test.id}
                 test={test}
-                state={getTestState(progress, test.id, test)}
+                state={getTestState(progress, test.id)}
                 result={progress.testResults[test.id]}
               />
             ))}
           </div>
         </div>
 
-        {/* FINAL PHASE */}
+        {/* PHASE 3: REPORT GENERATION */}
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
             📋 Report Generation
@@ -726,14 +686,14 @@ export default function PubGuardScanProgress({ targetUrl, onComplete, onCancel }
               <TestRow
                 key={test.id}
                 test={test}
-                state={getTestState(progress, test.id, test)}
+                state={getTestState(progress, test.id)}
                 result={progress.testResults[test.id]}
               />
             ))}
           </div>
         </div>
 
-        {/* ERROR */}
+        {/* ERROR STATE */}
         {isFailed && progress.error && (
           <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400">
             <p className="font-medium">Scan Failed</p>

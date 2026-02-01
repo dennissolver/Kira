@@ -1,12 +1,13 @@
 // app/pubguard/scan/page.tsx
 // PubGuard v2 Scan Page with User-Type-Aware Experience
-// Integrates: Scan API, Report Component, Kira Voice Agent
+// Integrates: Scan API, Report Component, Kira Voice Agent, Visual Progress UI
 
 'use client';
 
 import { useState, useCallback } from 'react';
 import PubGuardReportDisplay from '@/components/PubGuardReport';
 import KiraVoiceWidget from '@/components/KiraVoiceWidget';
+import PubGuardScanProgress from '@/components/PubGuardScanProgress';
 
 type UserType = 'writer' | 'developer' | 'user' | 'analyst';
 
@@ -51,37 +52,23 @@ export default function PubGuardScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
 
-  // Run scan
-  const runScan = useCallback(async () => {
+  // Start scan - just sets isScanning to true, actual scan happens in PubGuardScanProgress
+  const startScan = useCallback(() => {
     if (!url || !userType) return;
-
-    setIsScanning(true);
     setError(null);
+    setIsScanning(true);
+  }, [url, userType]);
 
-    try {
-      const response = await fetch('/api/pubguard/v2/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url,
-          userType,
-          sessionId,
-        }),
-      });
+  // Handle scan completion from PubGuardScanProgress
+  const handleScanComplete = useCallback((result: any) => {
+    setReport(result);
+    setIsScanning(false);
+  }, []);
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Scan failed');
-      }
-
-      const result = await response.json();
-      setReport(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Scan failed');
-    } finally {
-      setIsScanning(false);
-    }
-  }, [url, userType, sessionId]);
+  // Handle scan cancel
+  const handleScanCancel = useCallback(() => {
+    setIsScanning(false);
+  }, []);
 
   // Handle Kira scan completion
   const handleKiraScanComplete = useCallback((result: any) => {
@@ -95,6 +82,7 @@ export default function PubGuardScanPage() {
     setReport(null);
     setUrl('');
     setError(null);
+    setIsScanning(false);
   }, []);
 
   // ========================================
@@ -163,7 +151,21 @@ export default function PubGuardScanPage() {
   }
 
   // ========================================
-  // STEP 2: Show Report (if scan complete)
+  // STEP 2: SCANNING - Show Visual Progress UI
+  // ========================================
+  if (isScanning && url && userType) {
+    return (
+      <PubGuardScanProgress
+        targetUrl={url}
+        userType={userType}
+        onComplete={handleScanComplete}
+        onCancel={handleScanCancel}
+      />
+    );
+  }
+
+  // ========================================
+  // STEP 3: Show Report (if scan complete)
   // ========================================
   if (report) {
     return (
@@ -209,7 +211,7 @@ export default function PubGuardScanPage() {
   }
 
   // ========================================
-  // STEP 3: Scan Input
+  // STEP 4: Scan Input Form
   // ========================================
   const selectedType = USER_TYPES.find(t => t.id === userType)!;
 
@@ -262,6 +264,7 @@ export default function PubGuardScanPage() {
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && url && startScan()}
               placeholder="https://github.com/owner/repo"
               className="w-full px-4 py-3 bg-slate-800/50 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/50"
             />
@@ -276,25 +279,15 @@ export default function PubGuardScanPage() {
 
           {/* Scan Button */}
           <button
-            onClick={runScan}
-            disabled={!url || isScanning}
+            onClick={startScan}
+            disabled={!url}
             className={`w-full py-4 rounded-xl font-semibold text-white transition-all ${
-              !url || isScanning
+              !url
                 ? 'bg-slate-700 cursor-not-allowed'
                 : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 hover:shadow-lg hover:shadow-red-500/20'
             }`}
           >
-            {isScanning ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Scanning...
-              </span>
-            ) : (
-              '🛡️ Run Security Scan'
-            )}
+            🛡️ Run Security Scan
           </button>
 
           {/* Voice Alternative */}
