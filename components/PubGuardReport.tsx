@@ -135,32 +135,46 @@ function generatePDF(report: PubGuardReport, userType: UserType): jsPDF {
   setFill(tlColor);
   doc.rect(0, 0, pageWidth, 50, 'F');
 
+  // Header background - make it taller for branding
+  setFill(tlColor);
+  doc.rect(0, 0, pageWidth, 62, 'F');
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   setColor(PDF_COLORS.white);
-  doc.text('PUBGUARD SECURITY REPORT', margin, 20);
+  doc.text('PUBGUARD SECURITY REPORT', margin, 16);
 
-  doc.setFontSize(11);
+  // Branding subtitle
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Repository: ${report.target.name}`, margin, 30);
-  doc.text(`Generated: ${formatDate(report.generatedAt)}`, margin, 38);
-  doc.text(`Report for: ${USER_TYPE_CONFIG[userType].label}`, margin, 46);
+  doc.text('Powered by Kira AI | Corporate AI Solutions', margin, 24);
+
+  // Contact details
+  doc.setFontSize(8);
+  doc.text('Dennis McMahon | Ph/WhatsApp: +61 402 612 471 | dennis@corporateaisolutions.com', margin, 32);
+  doc.text('Web: corporateaisolutions.com | LinkedIn: linkedin.com/in/denniskl', margin, 38);
+
+  // Report details
+  doc.setFontSize(10);
+  doc.text(`Repository: ${report.target.name}`, margin, 48);
+  doc.text(`Generated: ${formatDate(report.generatedAt)}`, margin, 55);
+  doc.text(`Report for: ${USER_TYPE_CONFIG[userType].label}`, margin, 62);
 
   // Rating badge
   const badgeX = pageWidth - margin - 35;
   setFill(PDF_COLORS.white);
-  doc.roundedRect(badgeX, 10, 35, 32, 3, 3, 'F');
+  doc.roundedRect(badgeX, 8, 35, 32, 3, 3, 'F');
   doc.setFontSize(9);
   setColor(PDF_COLORS.darkGray);
-  doc.text('RATING', badgeX + 17.5, 18, { align: 'center' });
+  doc.text('RATING', badgeX + 17.5, 16, { align: 'center' });
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
   setColor(tlColor);
-  doc.text(report.trafficLight.toUpperCase(), badgeX + 17.5, 28, { align: 'center' });
+  doc.text(report.trafficLight.toUpperCase(), badgeX + 17.5, 26, { align: 'center' });
   doc.setFontSize(11);
-  doc.text(`${report.overallRiskScore}/100`, badgeX + 17.5, 38, { align: 'center' });
+  doc.text(`${report.overallRiskScore}/100`, badgeX + 17.5, 36, { align: 'center' });
 
-  y = 58;
+  y = 70;
 
   // Executive Summary
   setFill({ r: 248, g: 249, b: 250 });
@@ -387,13 +401,19 @@ function generatePDF(report: PubGuardReport, userType: UserType): jsPDF {
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
     doc.setDrawColor(200, 200, 200);
-    doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+    doc.line(margin, pageHeight - 18, pageWidth - margin, pageHeight - 18);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
     setColor(PDF_COLORS.lightGray);
-    doc.text(`PubGuard Security Report | ${report.target.name}`, margin, pageHeight - 10);
-    doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
-    doc.text(`ID: ${report.id.substring(0, 25)}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+    doc.text(`PubGuard Security Report | ${report.target.name}`, margin, pageHeight - 13);
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 13, { align: 'center' });
+    doc.text(`ID: ${report.id.substring(0, 25)}`, pageWidth - margin, pageHeight - 13, { align: 'right' });
+
+    // Branding line
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    setColor({ r: 99, g: 102, b: 241 }); // Indigo color
+    doc.text('Powered by Kira AI | Corporate AI Solutions', pageWidth / 2, pageHeight - 7, { align: 'center' });
   }
 
   return doc;
