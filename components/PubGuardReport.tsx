@@ -1,29 +1,35 @@
 // components/PubGuardReport.tsx
-// User-type-aware report display component for PubGuard v2
-// Customizes content and emphasis based on: writer | developer | user | analyst
+// PubGuard Security Report with Professional PDF Generation
 
 'use client';
 
-import { useState } from 'react';
-import { FileText, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Shield, AlertTriangle, CheckCircle, XCircle, ExternalLink, FileText,
+  Loader2, Download, Printer, ArrowLeft, AlertCircle, Clock, Users,
+  GitBranch, Star, Code, Database
+} from 'lucide-react';
 import jsPDF from 'jspdf';
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-type TrafficLight = 'green' | 'amber' | 'red';
-type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
-type UserType = 'writer' | 'developer' | 'user' | 'analyst';
+// Type definitions
+interface CVEFinding {
+  id: string;
+  description: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  cvssScore: number | null;
+  publishedDate: string;
+  affectedVersions: string[];
+  references: string[];
+  status: 'open' | 'fixed' | 'disputed';
+}
 
 interface Finding {
-  severity: RiskLevel;
+  severity: 'critical' | 'high' | 'medium' | 'low';
   category: string;
   title: string;
   description: string;
-  source: string;
+  source?: string;
   sourceUrl?: string;
-  date?: string;
 }
 
 interface RiskCategory {
@@ -43,21 +49,13 @@ interface SourceCheck {
   timestamp: string;
 }
 
-interface WriterGuidance {
-  canRecommend: boolean;
-  mustDisclose: string[];
-  suggestedDisclaimer: string;
-  keyPointsToMention: string[];
-  alternativesToConsider: string[];
-}
-
 interface PubGuardReport {
   id: string;
   version: string;
   generatedAt: string;
-  target: { url: string; name: string; type: string };
-  trafficLight: TrafficLight;
-  recommendation: string;
+  target: { url: string; name: string; type: string; };
+  trafficLight: 'green' | 'amber' | 'red';
+  recommendation: 'SAFE_TO_RECOMMEND' | 'PROCEED_WITH_CAUTION' | 'DO_NOT_RECOMMEND';
   overallRiskScore: number;
   riskCategories: RiskCategory[];
   sourcesChecked: SourceCheck[];
@@ -69,934 +67,552 @@ interface PubGuardReport {
     low: Finding[];
     positive: Finding[];
   };
-  github?: any;
-  cve?: any;
-  news?: any;
-  social?: any;
-  securityTests?: any;
-  writerGuidance: WriterGuidance;
+  github: any | null;
+  cve: { searchTerms: string[]; totalFound: number; vulnerabilities: CVEFinding[]; highestSeverity: string | null; } | null;
+  news: any | null;
+  social: any | null;
+  codebase: any | null;
+  securityTests: any | null;
+  writerGuidance: { canRecommend: boolean; mustDisclose: string[]; suggestedDisclaimer: string; keyPointsToMention: string[]; alternativesToConsider: string[]; };
   disclaimer: string;
   reportHash: string;
 }
 
-interface Props {
-  report: PubGuardReport;
-  userType: UserType;
-  onNewScan?: () => void;
-}
+type UserType = 'writer' | 'developer' | 'user' | 'analyst';
 
-// ============================================================================
-// USER TYPE CONFIGURATION
-// ============================================================================
-
-const USER_TYPE_CONFIG: Record<UserType, {
-  title: string;
-  icon: string;
-  color: string;
-  bgColor: string;
-  borderColor: string;
-  primaryTabs: string[];
-  hiddenTabs: string[];
-  showTechnicalDetails: boolean;
-  showWriterGuidance: boolean;
-  showDeveloperActions: boolean;
-  showUserSafety: boolean;
-  emphasizeCategories: string[];
-  summaryFocus: string;
-}> = {
-  writer: {
-    title: 'Tech Writer',
-    icon: '✏️',
-    color: 'text-purple-400',
-    bgColor: 'bg-purple-500/10',
-    borderColor: 'border-purple-500/30',
-    primaryTabs: ['summary', 'guidance', 'findings'],
-    hiddenTabs: ['technical'],
-    showTechnicalDetails: false,
-    showWriterGuidance: true,
-    showDeveloperActions: false,
-    showUserSafety: false,
-    emphasizeCategories: ['News & Expert Warnings', 'Velocity Risk'],
-    summaryFocus: 'Can I recommend this to my readers?',
-  },
-  developer: {
-    title: 'Developer',
-    icon: '💻',
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-500/10',
-    borderColor: 'border-blue-500/30',
-    primaryTabs: ['summary', 'findings', 'actions', 'sources'],
-    hiddenTabs: ['guidance'],
-    showTechnicalDetails: true,
-    showWriterGuidance: false,
-    showDeveloperActions: true,
-    showUserSafety: false,
-    emphasizeCategories: ['Architecture Risk', 'Active Vulnerabilities', 'Maintainer Response'],
-    summaryFocus: 'What should I fix before shipping?',
-  },
-  user: {
-    title: 'User',
-    icon: '👤',
-    color: 'text-green-400',
-    bgColor: 'bg-green-500/10',
-    borderColor: 'border-green-500/30',
-    primaryTabs: ['safety', 'summary', 'findings'],
-    hiddenTabs: ['guidance', 'technical', 'actions'],
-    showTechnicalDetails: false,
-    showWriterGuidance: false,
-    showDeveloperActions: false,
-    showUserSafety: true,
-    emphasizeCategories: ['Architecture Risk', 'Active Vulnerabilities'],
-    summaryFocus: 'Is this safe to install?',
-  },
-  analyst: {
-    title: 'Security Analyst',
-    icon: '🔍',
-    color: 'text-amber-400',
-    bgColor: 'bg-amber-500/10',
-    borderColor: 'border-amber-500/30',
-    primaryTabs: ['summary', 'findings', 'technical', 'sources'],
-    hiddenTabs: ['guidance', 'safety'],
-    showTechnicalDetails: true,
-    showWriterGuidance: false,
-    showDeveloperActions: false,
-    showUserSafety: false,
-    emphasizeCategories: ['Active Vulnerabilities', 'Architecture Risk', 'News & Expert Warnings'],
-    summaryFocus: 'Full security assessment',
-  },
+const USER_TYPE_CONFIG: Record<UserType, { label: string; primaryQuestion: string; }> = {
+  writer: { label: 'Tech Writer', primaryQuestion: 'Can I recommend this tool?' },
+  developer: { label: 'Developer', primaryQuestion: 'What should I fix before shipping?' },
+  user: { label: 'User', primaryQuestion: 'Is this safe to install?' },
+  analyst: { label: 'Security Analyst', primaryQuestion: 'What are the security implications?' },
 };
 
-// ============================================================================
-// PDF DOWNLOAD BUTTON COMPONENT
-// ============================================================================
+// PDF Colors
+const PDF_COLORS = {
+  red: { r: 220, g: 53, b: 69 },
+  amber: { r: 255, g: 193, b: 7 },
+  green: { r: 40, g: 167, b: 69 },
+  darkGray: { r: 52, g: 58, b: 64 },
+  lightGray: { r: 108, g: 117, b: 125 },
+  white: { r: 255, g: 255, b: 255 },
+  critical: { r: 220, g: 53, b: 69 },
+  high: { r: 253, g: 126, b: 20 },
+};
 
-function PDFDownloadButton({ report, userType }: { report: PubGuardReport; userType: UserType }) {
-  const [generating, setGenerating] = useState(false);
+function getTrafficLightColor(light: string) {
+  if (light === 'red') return PDF_COLORS.red;
+  if (light === 'amber') return PDF_COLORS.amber;
+  return PDF_COLORS.green;
+}
 
-  const generatePDF = async () => {
-    setGenerating(true);
-    try {
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 20;
-      let y = margin;
+function cleanText(text: string): string {
+  if (!text) return '';
+  return text.replace(/[🚨⚠️✓✗🛡️📊🔒❌✅]/g, '').replace(/Ø=Þ¨/g, '').replace(/\r?\n/g, ' ').trim();
+}
 
-      doc.setFontSize(24);
+function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// Professional PDF Generator
+function generatePDF(report: PubGuardReport, userType: UserType): jsPDF {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 15;
+  const contentWidth = pageWidth - margin * 2;
+  let y = margin;
+
+  const setColor = (c: {r:number;g:number;b:number}) => doc.setTextColor(c.r, c.g, c.b);
+  const setFill = (c: {r:number;g:number;b:number}) => doc.setFillColor(c.r, c.g, c.b);
+  const checkPage = (h: number) => { if (y + h > pageHeight - 25) { doc.addPage(); y = margin; } };
+
+  const tlColor = getTrafficLightColor(report.trafficLight);
+
+  // Header
+  setFill(tlColor);
+  doc.rect(0, 0, pageWidth, 50, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  setColor(PDF_COLORS.white);
+  doc.text('PUBGUARD SECURITY REPORT', margin, 20);
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Repository: ${report.target.name}`, margin, 30);
+  doc.text(`Generated: ${formatDate(report.generatedAt)}`, margin, 38);
+  doc.text(`Report for: ${USER_TYPE_CONFIG[userType].label}`, margin, 46);
+
+  // Rating badge
+  const badgeX = pageWidth - margin - 35;
+  setFill(PDF_COLORS.white);
+  doc.roundedRect(badgeX, 10, 35, 32, 3, 3, 'F');
+  doc.setFontSize(9);
+  setColor(PDF_COLORS.darkGray);
+  doc.text('RATING', badgeX + 17.5, 18, { align: 'center' });
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  setColor(tlColor);
+  doc.text(report.trafficLight.toUpperCase(), badgeX + 17.5, 28, { align: 'center' });
+  doc.setFontSize(11);
+  doc.text(`${report.overallRiskScore}/100`, badgeX + 17.5, 38, { align: 'center' });
+
+  y = 58;
+
+  // Executive Summary
+  setFill({ r: 248, g: 249, b: 250 });
+  doc.roundedRect(margin, y, contentWidth, 28, 3, 3, 'F');
+  y += 8;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  setColor(PDF_COLORS.darkGray);
+  doc.text('EXECUTIVE SUMMARY', margin + 5, y);
+
+  y += 7;
+  const recText = report.recommendation === 'DO_NOT_RECOMMEND'
+    ? 'CRITICAL ISSUES FOUND - Do not use this software'
+    : report.recommendation === 'PROCEED_WITH_CAUTION'
+    ? 'Proceed with caution - review findings before use'
+    : 'Appears safe to use with standard precautions';
+  setColor(tlColor);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text(recText, margin + 5, y);
+
+  y += 7;
+  setColor(PDF_COLORS.darkGray);
+  doc.setFont('helvetica', 'normal');
+  const counts = `Findings: ${report.findings.critical?.length||0} Critical | ${report.findings.high?.length||0} High | ${report.findings.medium?.length||0} Medium | ${report.findings.positive?.length||0} Positive`;
+  doc.text(counts, margin + 5, y);
+
+  y += 15;
+
+  // CVE Section
+  if (report.cve && report.cve.vulnerabilities.length > 0) {
+    const critCVEs = report.cve.vulnerabilities.filter(v => v.severity === 'CRITICAL');
+    const highCVEs = report.cve.vulnerabilities.filter(v => v.severity === 'HIGH');
+
+    if (critCVEs.length > 0) {
+      checkPage(50);
+      setFill(PDF_COLORS.critical);
+      doc.roundedRect(margin, y, contentWidth, 9, 2, 2, 'F');
+      setColor(PDF_COLORS.white);
       doc.setFont('helvetica', 'bold');
-      doc.text('PubGuard Security Report', pageWidth / 2, y, { align: 'center' });
-      y += 15;
-
-      doc.setFontSize(12);
-      doc.text(`Repository: ${report.target?.name}`, margin, y);
-      y += 8;
       doc.setFontSize(10);
-      doc.text(`Risk Score: ${report.overallRiskScore}/100`, margin, y);
-      y += 8;
-      doc.text(`Rating: ${report.trafficLight?.toUpperCase()}`, margin, y);
-      y += 15;
+      doc.text('CRITICAL VULNERABILITIES - IMMEDIATE ACTION REQUIRED', margin + 5, y + 6);
+      y += 14;
 
-      doc.setFontSize(14);
-      doc.text('Findings:', margin, y);
-      y += 8;
-      (['critical', 'high', 'medium', 'positive'] as const).forEach(sev => {
-        const findings = report.findings?.[sev] || [];
-        if (findings.length > 0) {
-          doc.setFontSize(10);
-          doc.text(`${sev.toUpperCase()} (${findings.length}):`, margin, y);
-          y += 5;
-          findings.slice(0, 3).forEach((f) => {
-            doc.text(`  • ${f.title}`, margin, y);
-            y += 5;
-          });
-          y += 3;
+      for (const cve of critCVEs) {
+        checkPage(40);
+        setFill({ r: 255, g: 235, b: 235 });
+        doc.roundedRect(margin, y, contentWidth, 35, 2, 2, 'F');
+
+        y += 7;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        setColor(PDF_COLORS.critical);
+        doc.text(cve.id, margin + 5, y);
+
+        if (cve.cvssScore !== null) {
+          setFill(PDF_COLORS.critical);
+          doc.roundedRect(margin + 40, y - 4, 25, 7, 2, 2, 'F');
+          setColor(PDF_COLORS.white);
+          doc.setFontSize(8);
+          doc.text(`CVSS ${cve.cvssScore}`, margin + 52.5, y, { align: 'center' });
         }
-      });
 
-      doc.save(`pubguard-${report.target?.name?.replace('/', '-')}.pdf`);
+        setColor(PDF_COLORS.lightGray);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.text(`Published: ${new Date(cve.publishedDate).toLocaleDateString()}`, margin + 75, y);
+
+        y += 7;
+        setColor(PDF_COLORS.darkGray);
+        doc.setFontSize(8);
+        const desc = cleanText(cve.description);
+        const lines = doc.splitTextToSize(desc, contentWidth - 10);
+        for (let i = 0; i < Math.min(lines.length, 3); i++) {
+          doc.text(lines[i], margin + 5, y);
+          y += 4;
+        }
+
+        if (cve.references && cve.references[0]) {
+          y += 2;
+          setColor(PDF_COLORS.lightGray);
+          doc.setFontSize(7);
+          doc.text(`Ref: ${cve.references[0].substring(0, 65)}...`, margin + 5, y);
+        }
+        y += 10;
+      }
+    }
+
+    if (highCVEs.length > 0) {
+      checkPage(25);
+      setFill(PDF_COLORS.high);
+      doc.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
+      setColor(PDF_COLORS.white);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(`HIGH SEVERITY VULNERABILITIES (${highCVEs.length})`, margin + 5, y + 5.5);
+      y += 12;
+
+      for (const cve of highCVEs.slice(0, 3)) {
+        checkPage(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        setColor(PDF_COLORS.high);
+        doc.text(cve.id, margin + 5, y);
+        setColor(PDF_COLORS.lightGray);
+        doc.setFont('helvetica', 'normal');
+        doc.text(cve.cvssScore ? `CVSS ${cve.cvssScore}` : '', margin + 35, y);
+        setColor(PDF_COLORS.darkGray);
+        doc.text(cleanText(cve.description).substring(0, 70) + '...', margin + 55, y);
+        y += 6;
+      }
+      y += 5;
+    }
+  }
+
+  // Risk Breakdown
+  checkPage(50);
+  y += 3;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  setColor(PDF_COLORS.darkGray);
+  doc.text('RISK SCORE BREAKDOWN', margin, y);
+  y += 7;
+
+  setFill(PDF_COLORS.darkGray);
+  doc.rect(margin, y, contentWidth, 7, 'F');
+  setColor(PDF_COLORS.white);
+  doc.setFontSize(8);
+  doc.text('Category', margin + 3, y + 5);
+  doc.text('Score', margin + 80, y + 5);
+  doc.text('Weight', margin + 100, y + 5);
+  doc.text('Weighted', margin + 122, y + 5);
+  doc.text('Key Factor', margin + 145, y + 5);
+  y += 7;
+
+  doc.setFont('helvetica', 'normal');
+  for (const cat of report.riskCategories) {
+    checkPage(8);
+    const rowBg = cat.score >= 70 ? { r: 255, g: 235, b: 235 } : cat.score >= 40 ? { r: 255, g: 248, b: 225 } : { r: 235, g: 250, b: 235 };
+    setFill(rowBg);
+    doc.rect(margin, y, contentWidth, 7, 'F');
+    setColor(PDF_COLORS.darkGray);
+    doc.setFontSize(7);
+    doc.text(cat.name.substring(0, 25), margin + 3, y + 5);
+    const scoreCol = cat.score >= 70 ? PDF_COLORS.critical : cat.score >= 40 ? PDF_COLORS.high : PDF_COLORS.green;
+    setColor(scoreCol);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${cat.score}`, margin + 80, y + 5);
+    setColor(PDF_COLORS.lightGray);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${Math.round(cat.weight * 100)}%`, margin + 100, y + 5);
+    doc.text(`${cat.weightedScore.toFixed(1)}`, margin + 122, y + 5);
+    if (cat.factors?.[0]) {
+      setColor(PDF_COLORS.darkGray);
+      doc.text(cleanText(cat.factors[0]).substring(0, 22), margin + 145, y + 5);
+    }
+    y += 7;
+  }
+
+  setFill(PDF_COLORS.darkGray);
+  doc.rect(margin, y, contentWidth, 7, 'F');
+  setColor(PDF_COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.text('TOTAL RISK SCORE', margin + 3, y + 5);
+  doc.text(`${report.overallRiskScore}/100`, margin + 122, y + 5);
+  y += 12;
+
+  // Findings
+  checkPage(30);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  setColor(PDF_COLORS.darkGray);
+  doc.text('FINDINGS SUMMARY', margin, y);
+  y += 7;
+
+  const allFindings = [
+    ...(report.findings.critical || []).map(f => ({ ...f, level: 'CRITICAL', color: PDF_COLORS.critical })),
+    ...(report.findings.high || []).map(f => ({ ...f, level: 'HIGH', color: PDF_COLORS.high })),
+    ...(report.findings.positive || []).map(f => ({ ...f, level: 'POSITIVE', color: PDF_COLORS.green })),
+  ];
+
+  for (const f of allFindings.slice(0, 10)) {
+    checkPage(10);
+    setFill(f.color);
+    const badgeW = f.level === 'CRITICAL' ? 18 : f.level === 'HIGH' ? 12 : 18;
+    doc.roundedRect(margin, y, badgeW, 5, 1, 1, 'F');
+    setColor(PDF_COLORS.white);
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.text(f.level, margin + badgeW/2, y + 3.5, { align: 'center' });
+    setColor(PDF_COLORS.darkGray);
+    doc.setFontSize(8);
+    doc.text(cleanText(f.title).substring(0, 70), margin + badgeW + 4, y + 3.5);
+    y += 7;
+  }
+
+  // Writer Guidance
+  if (report.trafficLight !== 'green' && report.writerGuidance?.mustDisclose?.length > 0) {
+    checkPage(35);
+    y += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setColor(PDF_COLORS.darkGray);
+    doc.text('DISCLOSURE REQUIREMENTS', margin, y);
+    y += 6;
+
+    setFill(report.trafficLight === 'red' ? { r: 255, g: 230, b: 230 } : { r: 255, g: 245, b: 220 });
+    const boxH = 6 + report.writerGuidance.mustDisclose.length * 5;
+    doc.roundedRect(margin, y, contentWidth, boxH, 2, 2, 'F');
+    y += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setColor(PDF_COLORS.darkGray);
+    for (const item of report.writerGuidance.mustDisclose.slice(0, 5)) {
+      doc.text('• ' + cleanText(item).substring(0, 80), margin + 5, y);
+      y += 5;
+    }
+    y += 5;
+  }
+
+  // Footer on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(200, 200, 200);
+    doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    setColor(PDF_COLORS.lightGray);
+    doc.text(`PubGuard Security Report | ${report.target.name}`, margin, pageHeight - 10);
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+    doc.text(`ID: ${report.id.substring(0, 25)}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+  }
+
+  return doc;
+}
+
+// PDF Button Component
+function PDFButton({ report, userType }: { report: PubGuardReport; userType: UserType }) {
+  const [loading, setLoading] = useState(false);
+
+  const download = async () => {
+    setLoading(true);
+    try {
+      const doc = generatePDF(report, userType);
+      doc.save(`pubguard-${report.target.name.replace('/', '-')}.pdf`);
     } catch (e) {
-      console.error('PDF generation failed:', e);
+      console.error('PDF failed:', e);
       alert('PDF generation failed');
     }
-    setGenerating(false);
+    setLoading(false);
   };
 
+  const btnClass = report.trafficLight === 'red'
+    ? 'bg-red-500 hover:bg-red-600'
+    : report.trafficLight === 'amber'
+    ? 'bg-amber-500 hover:bg-amber-600'
+    : 'bg-green-500 hover:bg-green-600';
+
   return (
-    <button
-      onClick={generatePDF}
-      disabled={generating}
-      className={`px-6 py-3 rounded-xl flex items-center gap-2 ${
-        generating
-          ? 'bg-slate-700 text-slate-400'
-          : 'bg-gradient-to-r from-red-500 to-pink-500 text-white hover:from-red-600 hover:to-pink-600'
-      }`}
-    >
-      {generating ? (
-        <>
-          <Loader2 className="w-4 h-4 animate-spin" />
-          Generating...
-        </>
-      ) : (
-        <>
-          <FileText className="w-4 h-4" />
-          Download PDF
-        </>
-      )}
+    <button onClick={download} disabled={loading}
+      className={`inline-flex items-center gap-2 px-4 py-2 text-white font-medium rounded-lg ${btnClass} disabled:opacity-50`}>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+      {loading ? 'Generating...' : 'Download PDF'}
     </button>
   );
 }
 
-// ============================================================================
-// HELPER COMPONENTS
-// ============================================================================
+// Main Component
+interface Props {
+  report: PubGuardReport;
+  userType?: UserType;
+  onNewScan?: () => void;
+}
 
-const TrafficLightIcon = ({ light }: { light: TrafficLight }) => {
-  const colors = {
-    green: { bg: 'bg-green-500', glow: 'shadow-green-500/50', text: 'text-green-500' },
-    amber: { bg: 'bg-amber-500', glow: 'shadow-amber-500/50', text: 'text-amber-500' },
-    red: { bg: 'bg-red-500', glow: 'shadow-red-500/50', text: 'text-red-500' },
-  };
-  const c = colors[light];
+export default function PubGuardReport({ report, userType = 'writer', onNewScan }: Props) {
+  const [tab, setTab] = useState('summary');
 
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <div className={`w-20 h-20 rounded-full ${c.bg} ${c.glow} shadow-lg flex items-center justify-center`}>
-        <span className="text-4xl">
-          {light === 'green' ? '✓' : light === 'amber' ? '⚠' : '✕'}
-        </span>
-      </div>
-      <span className={`text-2xl font-bold uppercase ${c.text}`}>{light}</span>
-    </div>
-  );
-};
+  const styles = {
+    green: { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-500', icon: <CheckCircle className="w-12 h-12 text-green-500" /> },
+    amber: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', badge: 'bg-amber-500', icon: <AlertTriangle className="w-12 h-12 text-amber-500" /> },
+    red: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-500', icon: <XCircle className="w-12 h-12 text-red-500" /> },
+  }[report.trafficLight];
 
-const SeverityBadge = ({ severity }: { severity: string }) => {
-  const colors: Record<string, string> = {
-    critical: 'bg-red-500/20 text-red-400 border-red-500/30',
-    high: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    low: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  const downloadJSON = () => {
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `pubguard-${report.target.name.replace('/', '-')}.json`;
+    a.click();
   };
 
   return (
-    <span className={`px-2 py-1 text-xs font-semibold rounded border uppercase ${colors[severity] || colors.low}`}>
-      {severity}
-    </span>
-  );
-};
-
-const RiskCategoryCard = ({ category, emphasized }: { category: RiskCategory; emphasized: boolean }) => {
-  const scoreColor = category.score >= 70 ? 'text-red-400' :
-                     category.score >= 40 ? 'text-amber-400' : 'text-green-400';
-
-  return (
-    <div className={`bg-white/[0.02] border rounded-xl p-4 ${
-      emphasized ? 'border-amber-500/50 ring-1 ring-amber-500/20' : 'border-white/10'
-    }`}>
-      <div className="flex justify-between items-start mb-3">
-        <div>
-          <h4 className="font-semibold text-white flex items-center gap-2">
-            {category.name}
-            {emphasized && <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded">Key for you</span>}
-          </h4>
-          <p className="text-sm text-slate-500">{category.description}</p>
-        </div>
-        <div className="text-right">
-          <span className={`text-2xl font-bold ${scoreColor}`}>{category.score}</span>
-          <span className="text-slate-500 text-sm">/100</span>
-          <p className="text-xs text-slate-600">Weight: {(category.weight * 100).toFixed(0)}%</p>
-        </div>
-      </div>
-      {category.factors.length > 0 && (
-        <ul className="space-y-1">
-          {category.factors.map((factor, i) => (
-            <li key={i} className="text-sm text-slate-400 flex items-start gap-2">
-              <span className={factor.startsWith('(Mitigated)') ? 'text-green-500' : 'text-slate-500'}>•</span>
-              {factor}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-};
-
-const FindingCard = ({ finding, compact = false }: { finding: Finding; compact?: boolean }) => (
-  <div className={`bg-white/[0.02] border border-white/10 rounded-lg ${compact ? 'p-3' : 'p-4'}`}>
-    <div className="flex items-start justify-between gap-3 mb-2">
-      <h5 className={`font-medium text-white ${compact ? 'text-sm' : ''}`}>{finding.title}</h5>
-      <SeverityBadge severity={finding.severity} />
-    </div>
-    <p className={`text-slate-400 mb-2 ${compact ? 'text-xs' : 'text-sm'}`}>{finding.description}</p>
-    <div className={`flex items-center gap-2 text-slate-500 ${compact ? 'text-xs' : 'text-xs'}`}>
-      <span>Source: {finding.source}</span>
-      {finding.sourceUrl && (
-        <a href={finding.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
-          View →
-        </a>
-      )}
-    </div>
-  </div>
-);
-
-// ============================================================================
-// USER-TYPE SPECIFIC SECTIONS
-// ============================================================================
-
-const WriterGuidanceTab = ({ report }: { report: PubGuardReport }) => (
-  <div className="space-y-6">
-    <h3 className="text-xl font-semibold text-white mb-4">✏️ Writer Guidance</h3>
-
-    <div className={`rounded-xl p-4 ${
-      report.writerGuidance.canRecommend 
-        ? 'bg-green-500/10 border border-green-500/30' 
-        : 'bg-red-500/10 border border-red-500/30'
-    }`}>
-      <h4 className={`font-semibold text-lg ${report.writerGuidance.canRecommend ? 'text-green-400' : 'text-red-400'}`}>
-        {report.writerGuidance.canRecommend ? '✓ Can recommend with disclosures' : '✕ Do not recommend'}
-      </h4>
-      <p className="text-slate-400 text-sm mt-1">
-        {report.writerGuidance.canRecommend
-          ? 'You may write about this tool, but must include the disclosures below.'
-          : 'The risks are too high to recommend this tool to your readers.'}
-      </p>
-    </div>
-
-    {report.writerGuidance.mustDisclose.length > 0 && (
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-amber-400 mb-3">⚠️ Must Disclose to Readers</h4>
-        <ul className="space-y-2">
-          {report.writerGuidance.mustDisclose.map((item, i) => (
-            <li key={i} className="flex items-start gap-2 text-slate-300">
-              <span className="text-amber-500 mt-1">•</span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
-
-    <div>
-      <h4 className="text-lg font-semibold text-white mb-3">📋 Copy-Paste Disclaimer</h4>
-      <div className="bg-slate-800/50 rounded-lg p-4 border border-white/10">
-        <p className="text-slate-300 italic text-sm leading-relaxed">{report.writerGuidance.suggestedDisclaimer}</p>
-      </div>
-      <button
-        onClick={() => navigator.clipboard.writeText(report.writerGuidance.suggestedDisclaimer)}
-        className="mt-2 px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg hover:bg-purple-500/30 transition-colors text-sm"
-      >
-        📋 Copy Disclaimer
-      </button>
-    </div>
-
-    {report.writerGuidance.keyPointsToMention.length > 0 && (
-      <div>
-        <h4 className="text-lg font-semibold text-white mb-3">💡 Key Points for Your Article</h4>
-        <ul className="space-y-2">
-          {report.writerGuidance.keyPointsToMention.map((point, i) => (
-            <li key={i} className="flex items-start gap-2 text-slate-300">
-              <span className="text-blue-500 mt-1">•</span>
-              <span>{point}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
-
-    <div className="bg-red-950/30 border border-red-500/20 rounded-xl p-4">
-      <h4 className="text-sm font-semibold text-red-400 mb-2">⚖️ Liability Reminder</h4>
-      <p className="text-xs text-red-300/80 leading-relaxed">
-        Recommending software that causes harm to readers (credential theft, data loss, financial damage)
-        can expose you to legal action. This report documents your due diligence but does not constitute
-        legal advice. When in doubt, consult with legal counsel before publishing.
-      </p>
-    </div>
-  </div>
-);
-
-const DeveloperActionsTab = ({ report }: { report: PubGuardReport }) => {
-  const allFindings = [
-    ...report.findings.critical,
-    ...report.findings.high,
-    ...report.findings.medium,
-  ];
-
-  return (
-    <div className="space-y-6">
-      <h3 className="text-xl font-semibold text-white mb-4">💻 Development Actions</h3>
-
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-blue-400 mb-3">🔧 Priority Fixes Before Release</h4>
-        {allFindings.length === 0 ? (
-          <p className="text-green-400">✓ No critical or high-severity issues found!</p>
-        ) : (
-          <div className="space-y-3">
-            {allFindings.slice(0, 5).map((finding, i) => (
-              <div key={i} className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-lg">
-                <span className={`text-lg ${
-                  finding.severity === 'critical' ? 'text-red-400' : 
-                  finding.severity === 'high' ? 'text-orange-400' : 'text-yellow-400'
-                }`}>
-                  {finding.severity === 'critical' ? '🚨' : finding.severity === 'high' ? '⚠️' : '📋'}
-                </span>
-                <div>
-                  <p className="text-white font-medium">{finding.title}</p>
-                  <p className="text-slate-400 text-sm">{finding.description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h4 className="text-lg font-semibold text-white mb-3">✅ Security Checklist</h4>
-        <div className="grid gap-2">
-          {[
-            { check: report.github?.hasSecurityPolicy, label: 'SECURITY.md file', action: 'Add responsible disclosure policy' },
-            { check: report.github?.hasCodeOfConduct, label: 'CODE_OF_CONDUCT.md', action: 'Add community guidelines' },
-            { check: report.github?.hasContributing, label: 'CONTRIBUTING.md', action: 'Add contribution guidelines' },
-            { check: !report.github?.permissions?.credentialStorage, label: 'No plaintext credentials', action: 'Use secure credential storage' },
-            { check: report.github?.contributors > 10, label: 'Multiple contributors', action: 'Invite code reviewers' },
-          ].map((item, i) => (
-            <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${
-              item.check ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'
-            }`}>
-              <div className="flex items-center gap-2">
-                <span className={item.check ? 'text-green-400' : 'text-red-400'}>{item.check ? '✓' : '✕'}</span>
-                <span className="text-slate-300">{item.label}</span>
-              </div>
-              {!item.check && <span className="text-xs text-slate-500">{item.action}</span>}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-white mb-3">📦 Recommended Security Tools</h4>
-        <div className="grid md:grid-cols-2 gap-3 text-sm">
-          <div className="p-3 bg-slate-800/50 rounded-lg">
-            <p className="text-white font-medium">Dependency Scanning</p>
-            <p className="text-slate-500">npm audit, Snyk, Dependabot</p>
-          </div>
-          <div className="p-3 bg-slate-800/50 rounded-lg">
-            <p className="text-white font-medium">Secret Detection</p>
-            <p className="text-slate-500">git-secrets, truffleHog, Gitleaks</p>
-          </div>
-          <div className="p-3 bg-slate-800/50 rounded-lg">
-            <p className="text-white font-medium">SAST/Code Analysis</p>
-            <p className="text-slate-500">CodeQL, Semgrep, SonarQube</p>
-          </div>
-          <div className="p-3 bg-slate-800/50 rounded-lg">
-            <p className="text-white font-medium">Container Security</p>
-            <p className="text-slate-500">Trivy, Clair, Docker Scout</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const UserSafetyTab = ({ report }: { report: PubGuardReport }) => {
-  const isSafe = report.trafficLight === 'green';
-  const isRisky = report.trafficLight === 'red';
-
-  return (
-    <div className="space-y-6">
-      <h3 className="text-xl font-semibold text-white mb-4">👤 Is This Safe to Install?</h3>
-
-      <div className={`rounded-2xl p-6 text-center ${
-        isSafe ? 'bg-green-500/10 border-2 border-green-500/30' :
-        isRisky ? 'bg-red-500/10 border-2 border-red-500/30' :
-        'bg-amber-500/10 border-2 border-amber-500/30'
-      }`}>
-        <div className="text-6xl mb-4">{isSafe ? '✅' : isRisky ? '🚫' : '⚠️'}</div>
-        <h4 className={`text-2xl font-bold mb-2 ${
-          isSafe ? 'text-green-400' : isRisky ? 'text-red-400' : 'text-amber-400'
-        }`}>
-          {isSafe ? 'Appears Safe' : isRisky ? 'Not Recommended' : 'Use With Caution'}
-        </h4>
-        <p className="text-slate-400">
-          {isSafe
-            ? 'This software passed our security checks. Still, always download from official sources.'
-            : isRisky
-            ? 'We found significant security concerns. Consider alternatives.'
-            : 'Some risks were identified. Read the details below before installing.'}
-        </p>
-      </div>
-
-      <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-white mb-3">📋 What You Should Know</h4>
-        <div className="space-y-3">
-          {report.github?.permissions?.shellAccess && (
-            <div className="flex items-start gap-3 p-3 bg-red-500/10 rounded-lg">
-              <span className="text-2xl">🖥️</span>
-              <div>
-                <p className="text-white font-medium">Runs commands on your computer</p>
-                <p className="text-slate-400 text-sm">This software can execute commands. Only install if you trust the developer.</p>
-              </div>
-            </div>
-          )}
-          {report.github?.permissions?.credentialStorage && (
-            <div className="flex items-start gap-3 p-3 bg-amber-500/10 rounded-lg">
-              <span className="text-2xl">🔑</span>
-              <div>
-                <p className="text-white font-medium">Stores your passwords/API keys</p>
-                <p className="text-slate-400 text-sm">Check where credentials are stored and how they're protected.</p>
-              </div>
-            </div>
-          )}
-          {report.github?.permissions?.networkAccess && (
-            <div className="flex items-start gap-3 p-3 bg-blue-500/10 rounded-lg">
-              <span className="text-2xl">🌐</span>
-              <div>
-                <p className="text-white font-medium">Connects to the internet</p>
-                <p className="text-slate-400 text-sm">This software sends/receives data online. Check the privacy policy.</p>
-              </div>
-            </div>
-          )}
-          {report.github?.permissions?.fileSystemAccess && (
-            <div className="flex items-start gap-3 p-3 bg-purple-500/10 rounded-lg">
-              <span className="text-2xl">📁</span>
-              <div>
-                <p className="text-white font-medium">Accesses your files</p>
-                <p className="text-slate-400 text-sm">The software can read/write files on your system.</p>
-              </div>
-            </div>
-          )}
-          {!report.github?.permissions?.shellAccess &&
-           !report.github?.permissions?.credentialStorage &&
-           !report.github?.permissions?.networkAccess &&
-           !report.github?.permissions?.fileSystemAccess && (
-            <div className="flex items-start gap-3 p-3 bg-green-500/10 rounded-lg">
-              <span className="text-2xl">✅</span>
-              <div>
-                <p className="text-white font-medium">Limited permissions detected</p>
-                <p className="text-slate-400 text-sm">No high-risk permissions were identified.</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <h4 className="text-lg font-semibold text-white mb-3">✅ Before You Install</h4>
-        <div className="space-y-2">
-          {[
-            'Download only from the official website or GitHub',
-            'Check the number of stars and contributors',
-            'Read recent reviews and issues',
-            'Start with a test environment if possible',
-            'Keep the software updated',
-          ].map((tip, i) => (
-            <div key={i} className="flex items-center gap-2 text-slate-300">
-              <span className="text-green-400">•</span>
-              {tip}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const AnalystTechnicalTab = ({ report }: { report: PubGuardReport }) => (
-  <div className="space-y-6">
-    <h3 className="text-xl font-semibold text-white mb-4">🔍 Technical Analysis</h3>
-
-    {report.github && (
-      <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-amber-400 mb-3">📊 Repository Metrics</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-3 bg-slate-800/50 rounded-lg">
-            <div className="text-2xl font-bold text-white">{report.github.stars?.toLocaleString() || 'N/A'}</div>
-            <div className="text-xs text-slate-500">Stars</div>
-          </div>
-          <div className="text-center p-3 bg-slate-800/50 rounded-lg">
-            <div className="text-2xl font-bold text-white">{report.github.forks?.toLocaleString() || 'N/A'}</div>
-            <div className="text-xs text-slate-500">Forks</div>
-          </div>
-          <div className="text-center p-3 bg-slate-800/50 rounded-lg">
-            <div className="text-2xl font-bold text-white">{report.github.contributors || 'N/A'}</div>
-            <div className="text-xs text-slate-500">Contributors</div>
-          </div>
-          <div className="text-center p-3 bg-slate-800/50 rounded-lg">
-            <div className="text-2xl font-bold text-white">{report.github.openIssues || 'N/A'}</div>
-            <div className="text-xs text-slate-500">Open Issues</div>
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-slate-500">Created:</span>
-            <span className="text-slate-300 ml-2">
-              {report.github.createdAt ? new Date(report.github.createdAt).toLocaleDateString() : 'N/A'}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Last Commit:</span>
-            <span className="text-slate-300 ml-2">
-              {report.github.daysSinceLastCommit !== undefined ? `${report.github.daysSinceLastCommit} days ago` : 'N/A'}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Age:</span>
-            <span className="text-slate-300 ml-2">
-              {report.github.ageInDays ? `${Math.floor(report.github.ageInDays / 365)}y ${Math.floor((report.github.ageInDays % 365) / 30)}m` : 'N/A'}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Stars/Day:</span>
-            <span className={`ml-2 ${report.github.starsPerDay > 100 ? 'text-amber-400' : 'text-slate-300'}`}>
-              {report.github.starsPerDay?.toFixed(1) || 'N/A'}
-              {report.github.isViralGrowth && ' ⚡ Viral'}
-            </span>
-          </div>
-        </div>
-      </div>
-    )}
-
-    <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
-      <h4 className="text-lg font-semibold text-red-400 mb-3">🛡️ CVE / Vulnerability Data</h4>
-      {report.cve?.vulnerabilities?.length > 0 ? (
-        <div className="space-y-2">
-          {report.cve.vulnerabilities.map((cve: any, i: number) => (
-            <div key={i} className="p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex justify-between items-start">
-                <span className="font-mono text-red-400">{cve.id}</span>
-                <span className={`text-xs px-2 py-1 rounded ${
-                  cve.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
-                  cve.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
-                  cve.severity === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400' :
-                  'bg-blue-500/20 text-blue-400'
-                }`}>
-                  {cve.severity} {cve.cvssScore && `(${cve.cvssScore})`}
-                </span>
-              </div>
-              <p className="text-slate-400 text-sm mt-1">{cve.description?.substring(0, 200)}...</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-green-400">✓ No CVEs found in NVD database</p>
-      )}
-    </div>
-
-    {report.github?.permissions && (
-      <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-purple-400 mb-3">🔐 Permission Matrix</h4>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {Object.entries(report.github.permissions).map(([key, value]) => (
-            <div key={key} className={`p-2 rounded text-sm ${
-              value ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'
-            }`}>
-              {value ? '⚠️' : '✓'} {key.replace(/([A-Z])/g, ' $1').trim()}
-            </div>
-          ))}
-        </div>
-      </div>
-    )}
-
-    {report.securityTests && (
-      <div className="bg-slate-800/30 border border-white/10 rounded-xl p-4">
-        <h4 className="text-lg font-semibold text-blue-400 mb-3">🧪 Automated Security Tests</h4>
-        <div className="space-y-2">
-          {report.securityTests.tests?.map((test: any, i: number) => (
-            <div key={i} className={`flex justify-between items-center p-2 rounded ${
-              test.passed ? 'bg-green-500/10' : 'bg-red-500/10'
-            }`}>
-              <span className="text-slate-300">{test.name}</span>
-              <span className={test.passed ? 'text-green-400' : 'text-red-400'}>
-                {test.passed ? 'PASS' : 'FAIL'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    )}
-
-    <div className="flex gap-3">
-      <button
-        onClick={() => {
-          const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `pubguard-full-report-${report.target.name.replace('/', '-')}.json`;
-          a.click();
-        }}
-        className="px-4 py-2 bg-amber-500/20 text-amber-400 rounded-lg hover:bg-amber-500/30 transition-colors text-sm"
-      >
-        📥 Export Full JSON
-      </button>
-      <button
-        onClick={() => {
-          const iocs = {
-            repository: report.target.url,
-            cves: report.cve?.vulnerabilities?.map((c: any) => c.id) || [],
-            warnings: report.findings.critical.concat(report.findings.high).map(f => f.title),
-            scannedAt: report.generatedAt,
-          };
-          navigator.clipboard.writeText(JSON.stringify(iocs, null, 2));
-        }}
-        className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors text-sm"
-      >
-        📋 Copy IOCs
-      </button>
-    </div>
-  </div>
-);
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-export default function PubGuardReportDisplay({ report, userType, onNewScan }: Props) {
-  const config = USER_TYPE_CONFIG[userType];
-  const [activeTab, setActiveTab] = useState<string>(config.primaryTabs[0]);
-
-  const allTabs = [
-    { id: 'summary', label: 'Summary', icon: '📊' },
-    { id: 'findings', label: `Findings (${Object.values(report.findings).flat().length})`, icon: '🔎' },
-    { id: 'sources', label: 'Sources', icon: '📚' },
-    { id: 'guidance', label: 'Writer Guidance', icon: '✏️' },
-    { id: 'actions', label: 'Dev Actions', icon: '💻' },
-    { id: 'safety', label: 'Safety Check', icon: '👤' },
-    { id: 'technical', label: 'Technical', icon: '🔍' },
-  ];
-
-  const visibleTabs = allTabs.filter(tab => !config.hiddenTabs.includes(tab.id));
-
-  const totalFindings = {
-    critical: report.findings.critical.length,
-    high: report.findings.high.length,
-    medium: report.findings.medium.length,
-    low: report.findings.low.length,
-    positive: report.findings.positive.length,
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      {/* User Type Badge */}
-      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 ${config.bgColor} border ${config.borderColor}`}>
-        <span>{config.icon}</span>
-        <span className={`font-medium ${config.color}`}>{config.title} View</span>
-      </div>
-
+    <div className="max-w-4xl mx-auto p-4 space-y-6">
       {/* Header */}
-      <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6 mb-6">
-        <div className="flex items-center justify-between mb-6">
+      <div className={`rounded-xl ${styles.bg} ${styles.border} border-2 p-6`}>
+        <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-white mb-1">🛡️ {report.target.name}</h2>
-            <p className="text-slate-500 text-sm">Scanned {new Date(report.generatedAt).toLocaleString()}</p>
-            <p className={`text-sm mt-1 ${config.color}`}>{config.summaryFocus}</p>
+            <p className="text-sm text-gray-500 mb-1">{USER_TYPE_CONFIG[userType].label} View</p>
+            <h1 className="text-2xl font-bold text-gray-900">🛡️ {report.target.name}</h1>
+            <p className="text-sm text-gray-500 mt-1">Scanned {formatDate(report.generatedAt)}</p>
+            <p className={`text-sm ${styles.text} mt-1 font-medium`}>{USER_TYPE_CONFIG[userType].primaryQuestion}</p>
           </div>
-          <TrafficLightIcon light={report.trafficLight} />
+          <div className="text-center">
+            {styles.icon}
+            <div className={`mt-2 px-4 py-1 rounded-full ${styles.badge} text-white font-bold text-lg`}>
+              {report.trafficLight.toUpperCase()}
+            </div>
+          </div>
         </div>
 
-        {/* Recommendation Banner */}
-        <div className={`rounded-xl p-4 mb-6 ${
-          report.trafficLight === 'green' ? 'bg-green-500/10 border border-green-500/30' :
-          report.trafficLight === 'amber' ? 'bg-amber-500/10 border border-amber-500/30' :
-          'bg-red-500/10 border border-red-500/30'
-        }`}>
-          <h3 className={`text-lg font-semibold mb-1 ${
-            report.trafficLight === 'green' ? 'text-green-400' :
-            report.trafficLight === 'amber' ? 'text-amber-400' : 'text-red-400'
-          }`}>
-            {report.recommendation.replace(/_/g, ' ')}
-          </h3>
-          <p className="text-slate-300">Risk Score: <span className="font-bold">{report.overallRiskScore}/100</span></p>
+        <div className={`mt-4 p-4 rounded-lg ${styles.bg} border ${styles.border}`}>
+          <div className={`text-lg font-semibold ${styles.text}`}>{report.recommendation.replace(/_/g, ' ')}</div>
+          <div className="text-sm text-gray-600">Risk Score: <span className="font-bold">{report.overallRiskScore}/100</span></div>
         </div>
 
-        {/* Findings Summary */}
-        <div className="grid grid-cols-5 gap-3 text-center">
-          <div className="bg-red-500/10 rounded-lg p-3">
-            <div className="text-2xl font-bold text-red-400">{totalFindings.critical}</div>
-            <div className="text-xs text-slate-500">Critical</div>
-          </div>
-          <div className="bg-orange-500/10 rounded-lg p-3">
-            <div className="text-2xl font-bold text-orange-400">{totalFindings.high}</div>
-            <div className="text-xs text-slate-500">High</div>
-          </div>
-          <div className="bg-yellow-500/10 rounded-lg p-3">
-            <div className="text-2xl font-bold text-yellow-400">{totalFindings.medium}</div>
-            <div className="text-xs text-slate-500">Medium</div>
-          </div>
-          <div className="bg-blue-500/10 rounded-lg p-3">
-            <div className="text-2xl font-bold text-blue-400">{totalFindings.low}</div>
-            <div className="text-xs text-slate-500">Low</div>
-          </div>
-          <div className="bg-green-500/10 rounded-lg p-3">
-            <div className="text-2xl font-bold text-green-400">{totalFindings.positive}</div>
-            <div className="text-xs text-slate-500">Positive</div>
-          </div>
+        <div className="grid grid-cols-5 gap-3 mt-4">
+          {[
+            { n: report.findings.critical?.length || 0, l: 'Critical', c: 'text-red-600' },
+            { n: report.findings.high?.length || 0, l: 'High', c: 'text-orange-500' },
+            { n: report.findings.medium?.length || 0, l: 'Medium', c: 'text-yellow-500' },
+            { n: report.findings.low?.length || 0, l: 'Low', c: 'text-blue-500' },
+            { n: report.findings.positive?.length || 0, l: 'Positive', c: 'text-green-500' },
+          ].map(x => (
+            <div key={x.l} className="text-center p-2 bg-white rounded-lg shadow-sm">
+              <div className={`text-xl font-bold ${x.c}`}>{x.n}</div>
+              <div className="text-xs text-gray-500">{x.l}</div>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        {visibleTabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-              activeTab === tab.id 
-                ? `${config.bgColor} ${config.color} border ${config.borderColor}` 
-                : 'bg-white/5 text-slate-400 hover:bg-white/10'
-            }`}
-          >
-            <span>{tab.icon}</span>
-            {tab.label}
+      <div className="flex gap-2 border-b pb-2">
+        {['summary', 'findings', 'technical', 'sources'].map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === t ? `${styles.badge} text-white` : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
 
       {/* Tab Content */}
-      <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-6">
-        {activeTab === 'summary' && (
+      <div className="bg-white rounded-xl shadow-sm border p-6">
+        {tab === 'summary' && (
           <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white mb-4">📊 Risk Score Breakdown</h3>
+            <h2 className="text-xl font-bold">Risk Score Breakdown</h2>
             {report.riskCategories.map((cat, i) => (
-              <RiskCategoryCard
-                key={i}
-                category={cat}
-                emphasized={config.emphasizeCategories.includes(cat.name)}
-              />
+              <div key={i} className="border rounded-lg p-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="font-semibold">{cat.name}</h3>
+                    <p className="text-sm text-gray-500">{cat.description}</p>
+                  </div>
+                  <div className={`text-2xl font-bold ${cat.score >= 70 ? 'text-red-600' : cat.score >= 40 ? 'text-amber-500' : 'text-green-600'}`}>
+                    {cat.score}/100
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                  <div className={`h-2 rounded-full ${cat.score >= 70 ? 'bg-red-500' : cat.score >= 40 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${cat.score}%` }} />
+                </div>
+                {cat.factors?.length > 0 && (
+                  <ul className="mt-2 text-sm text-gray-600">
+                    {cat.factors.map((f, j) => <li key={j}>• {f}</li>)}
+                  </ul>
+                )}
+              </div>
             ))}
           </div>
         )}
 
-        {activeTab === 'findings' && (
-          <div className="space-y-6">
-            {report.findings.critical.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold text-red-400 mb-3">🚨 Critical Findings</h3>
-                <div className="space-y-3">
-                  {report.findings.critical.map((f, i) => <FindingCard key={i} finding={f} />)}
-                </div>
+        {tab === 'findings' && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold">Detailed Findings</h2>
+            {report.findings.critical?.map((f, i) => (
+              <div key={i} className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-lg">
+                <span className="px-2 py-0.5 bg-red-600 text-white text-xs font-bold rounded">CRITICAL</span>
+                <h4 className="font-semibold mt-2">{f.title}</h4>
+                <p className="text-sm text-gray-600 mt-1">{f.description}</p>
+                {f.sourceUrl && <a href={f.sourceUrl} target="_blank" className="text-sm text-blue-600 hover:underline mt-2 inline-flex items-center gap-1">View Source <ExternalLink className="w-3 h-3" /></a>}
               </div>
-            )}
-            {report.findings.high.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold text-orange-400 mb-3">⚠️ High Severity</h3>
-                <div className="space-y-3">
-                  {report.findings.high.map((f, i) => <FindingCard key={i} finding={f} />)}
-                </div>
+            ))}
+            {report.findings.high?.map((f, i) => (
+              <div key={i} className="border-l-4 border-orange-400 bg-orange-50 p-4 rounded-r-lg">
+                <span className="px-2 py-0.5 bg-orange-500 text-white text-xs font-bold rounded">HIGH</span>
+                <h4 className="font-semibold mt-2">{f.title}</h4>
+                <p className="text-sm text-gray-600 mt-1">{f.description}</p>
               </div>
-            )}
-            {report.findings.medium.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold text-yellow-400 mb-3">📋 Medium Severity</h3>
-                <div className="space-y-3">
-                  {report.findings.medium.map((f, i) => <FindingCard key={i} finding={f} />)}
-                </div>
+            ))}
+            {report.findings.positive?.map((f, i) => (
+              <div key={i} className="border-l-4 border-green-400 bg-green-50 p-4 rounded-r-lg">
+                <span className="px-2 py-0.5 bg-green-600 text-white text-xs font-bold rounded">POSITIVE</span>
+                <h4 className="font-medium mt-2">{f.title}</h4>
               </div>
-            )}
-            {report.findings.positive.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold text-green-400 mb-3">✅ Positive Findings</h3>
-                <div className="space-y-3">
-                  {report.findings.positive.map((f, i) => <FindingCard key={i} finding={f} />)}
+            ))}
+          </div>
+        )}
+
+        {tab === 'technical' && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold">Technical Details</h2>
+            {report.cve?.vulnerabilities?.map((cve, i) => (
+              <div key={i} className={`border rounded-lg p-4 ${cve.severity === 'CRITICAL' ? 'border-red-300 bg-red-50' : cve.severity === 'HIGH' ? 'border-orange-300 bg-orange-50' : ''}`}>
+                <div className="flex items-center gap-3">
+                  <span className={`px-2 py-1 rounded text-xs font-bold text-white ${cve.severity === 'CRITICAL' ? 'bg-red-600' : cve.severity === 'HIGH' ? 'bg-orange-500' : 'bg-yellow-500'}`}>{cve.severity}</span>
+                  <a href={`https://nvd.nist.gov/vuln/detail/${cve.id}`} target="_blank" className="font-mono font-bold text-blue-600 hover:underline">{cve.id}</a>
+                  {cve.cvssScore && <span className="font-semibold">CVSS: {cve.cvssScore}</span>}
                 </div>
+                <p className="text-sm text-gray-700 mt-2">{cve.description}</p>
+                <p className="text-xs text-gray-500 mt-1">Published: {new Date(cve.publishedDate).toLocaleDateString()}</p>
+              </div>
+            ))}
+            {report.github && (
+              <div className="grid grid-cols-4 gap-4 mt-4">
+                <div className="bg-gray-50 p-3 rounded-lg text-center"><Star className="w-5 h-5 mx-auto text-yellow-500" /><div className="text-xl font-bold">{report.github.stars?.toLocaleString()}</div><div className="text-xs text-gray-500">Stars</div></div>
+                <div className="bg-gray-50 p-3 rounded-lg text-center"><GitBranch className="w-5 h-5 mx-auto text-gray-500" /><div className="text-xl font-bold">{report.github.forks?.toLocaleString()}</div><div className="text-xs text-gray-500">Forks</div></div>
+                <div className="bg-gray-50 p-3 rounded-lg text-center"><Users className="w-5 h-5 mx-auto text-blue-500" /><div className="text-xl font-bold">{report.github.contributors}</div><div className="text-xs text-gray-500">Contributors</div></div>
+                <div className="bg-gray-50 p-3 rounded-lg text-center"><Clock className="w-5 h-5 mx-auto text-green-500" /><div className="text-xl font-bold">{report.github.daysSinceLastCommit}</div><div className="text-xs text-gray-500">Days Since Commit</div></div>
               </div>
             )}
           </div>
         )}
 
-        {activeTab === 'sources' && (
-          <div>
-            <h3 className="text-xl font-semibold text-white mb-4">📚 Sources Checked</h3>
-            <table className="w-full mb-6">
-              <thead>
-                <tr className="text-left text-slate-500 text-sm border-b border-white/10">
-                  <th className="pb-2">Source</th>
-                  <th className="pb-2">Searched</th>
-                  <th className="pb-2 text-center">Found</th>
-                  <th className="pb-2 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.sourcesChecked.map((source, i) => (
-                  <tr key={i} className="border-b border-white/5">
-                    <td className="py-2 text-slate-300">{source.name}</td>
-                    <td className="py-2 text-slate-500 text-sm">{source.searched.slice(0, 3).join(', ')}</td>
-                    <td className="py-2 text-center">{source.found}</td>
-                    <td className={`py-2 text-center ${
-                      source.status === 'success' ? 'text-green-400' : 
-                      source.status === 'partial' ? 'text-amber-400' : 'text-red-400'
-                    }`}>
-                      {source.status === 'success' ? '✓' : source.status === 'partial' ? '◐' : '✕'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <h4 className="text-lg font-semibold text-white mb-3">Search Terms Used</h4>
-            <div className="flex flex-wrap gap-2">
-              {report.searchTermsUsed.map((term, i) => (
-                <span key={i} className="px-3 py-1 bg-white/5 rounded-full text-sm text-slate-400">{term}</span>
-              ))}
-            </div>
+        {tab === 'sources' && (
+          <div className="space-y-3">
+            <h2 className="text-xl font-bold">Data Sources</h2>
+            {report.sourcesChecked.map((s, i) => (
+              <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  {s.status === 'success' ? <CheckCircle className="w-5 h-5 text-green-500" /> : s.status === 'partial' ? <AlertTriangle className="w-5 h-5 text-amber-500" /> : <XCircle className="w-5 h-5 text-red-500" />}
+                  <div><div className="font-medium">{s.name}</div><div className="text-xs text-gray-500">{s.searched.slice(0, 3).join(', ')}</div></div>
+                </div>
+                <div className="text-right"><div className="font-semibold">{s.found} found</div><div className="text-xs text-gray-500">{s.status}</div></div>
+              </div>
+            ))}
           </div>
         )}
-
-        {activeTab === 'guidance' && config.showWriterGuidance && (
-          <WriterGuidanceTab report={report} />
-        )}
-
-        {activeTab === 'actions' && config.showDeveloperActions && (
-          <DeveloperActionsTab report={report} />
-        )}
-
-        {activeTab === 'safety' && config.showUserSafety && (
-          <UserSafetyTab report={report} />
-        )}
-
-        {activeTab === 'technical' && config.showTechnicalDetails && (
-          <AnalystTechnicalTab report={report} />
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="mt-6 p-4 bg-white/[0.02] rounded-xl border border-white/10">
-        <p className="text-xs text-slate-500 mb-2">{report.disclaimer}</p>
-        <div className="flex justify-between items-center text-xs text-slate-600">
-          <span>Report ID: {report.id}</span>
-          <span>Hash: {report.reportHash}</span>
-        </div>
       </div>
 
       {/* Actions */}
-      <div className="mt-6 flex gap-3 flex-wrap">
-        <button
-          onClick={onNewScan}
-          className="px-6 py-3 bg-white/5 text-slate-300 rounded-xl hover:bg-white/10 transition-colors"
-        >
-          ← New Scan
-        </button>
+      <div className="flex flex-wrap gap-3 bg-white rounded-xl shadow-sm border p-4">
+        {onNewScan && <button onClick={onNewScan} className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"><ArrowLeft className="w-4 h-4" />New Scan</button>}
+        <PDFButton report={report} userType={userType} />
+        <button onClick={downloadJSON} className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"><Download className="w-4 h-4" />Download JSON</button>
+        <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"><Printer className="w-4 h-4" />Print</button>
+      </div>
 
-        <PDFDownloadButton report={report} userType={userType} />
-
-        <button
-          onClick={() => {
-            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `pubguard-report-${report.target.name.replace('/', '-')}-${Date.now()}.json`;
-            a.click();
-          }}
-          className="px-6 py-3 bg-white/5 text-slate-300 rounded-xl hover:bg-white/10 transition-colors"
-        >
-          📥 Download JSON
-        </button>
-
-        <button
-          onClick={() => window.print()}
-          className={`px-6 py-3 rounded-xl transition-colors ${config.bgColor} ${config.color} border ${config.borderColor} hover:opacity-80`}
-        >
-          🖨️ Print Report
-        </button>
+      {/* Disclaimer */}
+      <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-4">
+        <p>{report.disclaimer}</p>
+        <p className="mt-2">Report ID: {report.id} | Hash: {report.reportHash}</p>
       </div>
     </div>
   );
