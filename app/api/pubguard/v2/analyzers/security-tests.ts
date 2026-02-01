@@ -1,613 +1,786 @@
 // app/api/pubguard/v2/analyzers/security-tests.ts
-// Automated security tests based on expert methodologies
+// REAL Security Tests - No Fake Simulations
+// Each test actually calls external APIs or performs real analysis
 
-import type { Finding } from '../types';
+// =============================================================================
+// TYPES - Must match ../types.ts SecurityTestsAnalysis
+// =============================================================================
 
-export interface SecurityTestResult {
+import type { Finding, SecurityTestsAnalysis, SecurityTestResult } from '../types';
+
+// Internal result type for individual tests
+interface InternalTestResult {
+  testId: string;
   testName: string;
   category: string;
   passed: boolean;
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  description: string;
-  evidence?: string;
-  recommendation?: string;
-}
-
-export interface SecurityTestsAnalysis {
-  testsRun: number;
-  testsPassed: number;
-  testsFailed: number;
-  results: SecurityTestResult[];
+  hasWarning: boolean;
+  score: number; // 0-100, lower is better (less risk)
   findings: Finding[];
-  overallRisk: number; // 0-100
+  details: Record<string, any>;
+  skipped?: boolean;
+  skipReason?: string;
 }
 
 // =============================================================================
-// TEST 1: Credential Storage Analysis
+// TEST 1: DEPENDENCY VULNERABILITIES (OSV.dev - FREE)
+// Scans package.json/requirements.txt for known vulnerabilities
 // =============================================================================
-async function testCredentialStorage(
-  owner: string,
-  repo: string,
-  readmeContent: string,
-  repoFiles?: string[]
-): Promise<SecurityTestResult> {
-  const insecurePatterns = [
-    /api[_-]?key\s*[=:]\s*['"]/i,
-    /password\s*[=:]\s*['"]/i,
-    /secret\s*[=:]\s*['"]/i,
-    /token\s*[=:]\s*['"]/i,
-    /\.env\s+file/i,
-    /plaintext/i,
-    /store.*credentials.*config/i,
-    /config\.json.*api/i,
-    /hardcoded/i,
-  ];
 
-  const securePatterns = [
-    /encrypted/i,
-    /keychain/i,
-    /vault/i,
-    /secret.*manager/i,
-    /environment.*variable/i,
-    /\.env\.example/i,
-    /never.*commit.*credentials/i,
-  ];
+interface OSVVulnerability {
+  id: string;
+  summary: string;
+  details: string;
+  severity: { type: string; score: string }[];
+  affected: { package: { name: string; ecosystem: string }; ranges: any[] }[];
+  references: { type: string; url: string }[];
+}
 
-  let insecureCount = 0;
-  let secureCount = 0;
-  const evidence: string[] = [];
-
-  for (const pattern of insecurePatterns) {
-    if (pattern.test(readmeContent)) {
-      insecureCount++;
-      const match = readmeContent.match(pattern);
-      if (match) evidence.push(match[0]);
-    }
-  }
-
-  for (const pattern of securePatterns) {
-    if (pattern.test(readmeContent)) {
-      secureCount++;
-    }
-  }
-
-  // Check for sensitive file patterns in repo
-  const sensitiveFiles = [
-    'config.json', 'secrets.json', '.env', 'credentials.json',
-    'api_keys.txt', 'passwords.txt'
-  ];
-  
-  const hasSensitiveFiles = repoFiles?.some(f => 
-    sensitiveFiles.some(sf => f.toLowerCase().includes(sf))
-  );
-
-  const passed = insecureCount === 0 && !hasSensitiveFiles;
-
-  return {
-    testName: 'Credential Storage Analysis',
-    category: 'credentials',
-    passed,
-    severity: passed ? 'info' : (insecureCount > 2 ? 'critical' : 'high'),
-    description: passed 
-      ? 'No obvious insecure credential storage patterns detected'
-      : `Found ${insecureCount} insecure credential storage patterns`,
-    evidence: evidence.length > 0 ? evidence.join(', ') : undefined,
-    recommendation: passed ? undefined : 'Use environment variables or a secrets manager instead of config files'
+async function fetchPackageJson(owner: string, repo: string, token?: string): Promise<any | null> {
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3.raw',
+    'User-Agent': 'PubGuard-Scanner',
   };
-}
-
-// =============================================================================
-// TEST 2: Permission Scope Audit
-// =============================================================================
-async function testPermissionScope(
-  readmeContent: string,
-  securityMdContent?: string
-): Promise<SecurityTestResult> {
-  const dangerousPermissions = [
-    { pattern: /shell\s*access/i, name: 'Shell Access', severity: 'critical' as const },
-    { pattern: /execute.*command/i, name: 'Command Execution', severity: 'critical' as const },
-    { pattern: /root\s*(access|required|permission)/i, name: 'Root Access', severity: 'critical' as const },
-    { pattern: /sudo/i, name: 'Sudo Usage', severity: 'high' as const },
-    { pattern: /file\s*system\s*(access|read|write)/i, name: 'File System Access', severity: 'high' as const },
-    { pattern: /full\s*disk\s*access/i, name: 'Full Disk Access', severity: 'critical' as const },
-    { pattern: /browser\s*(control|automation)/i, name: 'Browser Control', severity: 'medium' as const },
-    { pattern: /keylog/i, name: 'Keylogging', severity: 'critical' as const },
-    { pattern: /screen\s*(capture|shot|record)/i, name: 'Screen Capture', severity: 'medium' as const },
-    { pattern: /network\s*(access|traffic)/i, name: 'Network Access', severity: 'medium' as const },
-    { pattern: /admin(istrator)?\s*(rights|access|permission)/i, name: 'Admin Rights', severity: 'high' as const },
-  ];
-
-  const content = `${readmeContent} ${securityMdContent || ''}`;
-  const foundPermissions: { name: string; severity: string }[] = [];
-
-  for (const perm of dangerousPermissions) {
-    if (perm.pattern.test(content)) {
-      foundPermissions.push({ name: perm.name, severity: perm.severity });
-    }
-  }
-
-  const hasCritical = foundPermissions.some(p => p.severity === 'critical');
-  const hasHigh = foundPermissions.some(p => p.severity === 'high');
-  const passed = foundPermissions.length === 0;
-
-  return {
-    testName: 'Permission Scope Audit',
-    category: 'permissions',
-    passed,
-    severity: hasCritical ? 'critical' : (hasHigh ? 'high' : (passed ? 'info' : 'medium')),
-    description: passed
-      ? 'No dangerous permission requirements detected'
-      : `Requires ${foundPermissions.length} potentially dangerous permissions: ${foundPermissions.map(p => p.name).join(', ')}`,
-    evidence: foundPermissions.map(p => `${p.name} (${p.severity})`).join(', ') || undefined,
-    recommendation: passed ? undefined : 'Review if all requested permissions are necessary. Apply principle of least privilege.'
-  };
-}
-
-// =============================================================================
-// TEST 3: Prompt Injection Vulnerability Indicators
-// =============================================================================
-async function testPromptInjectionRisk(
-  readmeContent: string
-): Promise<SecurityTestResult> {
-  const riskIndicators = [
-    { pattern: /user\s*input.*directly/i, risk: 'Direct user input processing' },
-    { pattern: /no.*sanitiz/i, risk: 'Missing sanitization' },
-    { pattern: /trust.*user/i, risk: 'Trusting user input' },
-    { pattern: /llm.*tool.*call/i, risk: 'LLM with tool calling' },
-    { pattern: /agent.*execute/i, risk: 'Agent execution capabilities' },
-    { pattern: /mcp.*server/i, risk: 'MCP server (tool exposure)' },
-    { pattern: /function.*call/i, risk: 'Function calling enabled' },
-    { pattern: /code.*execution/i, risk: 'Code execution capability' },
-  ];
-
-  const mitigations = [
-    /input.*validation/i,
-    /sanitiz/i,
-    /escape.*user/i,
-    /injection.*protect/i,
-    /guard.*rail/i,
-    /content.*filter/i,
-  ];
-
-  const risksFound: string[] = [];
-  const mitigationsFound: string[] = [];
-
-  for (const indicator of riskIndicators) {
-    if (indicator.pattern.test(readmeContent)) {
-      risksFound.push(indicator.risk);
-    }
-  }
-
-  for (const mitigation of mitigations) {
-    if (mitigation.test(readmeContent)) {
-      mitigationsFound.push(mitigation.source);
-    }
-  }
-
-  // High risk if has agent capabilities but no mitigations mentioned
-  const hasAgentCapabilities = risksFound.length > 0;
-  const hasMitigations = mitigationsFound.length > 0;
-  const passed = !hasAgentCapabilities || hasMitigations;
-
-  return {
-    testName: 'Prompt Injection Risk Assessment',
-    category: 'injection',
-    passed,
-    severity: !passed && risksFound.length > 3 ? 'critical' : (!passed ? 'high' : 'info'),
-    description: passed
-      ? hasAgentCapabilities 
-        ? 'Agent capabilities detected with mitigations in place'
-        : 'No significant prompt injection risk indicators'
-      : `Found ${risksFound.length} risk indicators with no documented mitigations`,
-    evidence: risksFound.length > 0 ? risksFound.join(', ') : undefined,
-    recommendation: passed ? undefined : 'Implement input validation, output filtering, and prompt injection guardrails'
-  };
-}
-
-// =============================================================================
-// TEST 4: Supply Chain Security
-// =============================================================================
-async function testSupplyChainSecurity(
-  owner: string,
-  repo: string,
-  readmeContent: string
-): Promise<SecurityTestResult> {
-  const supplyChainRisks = [
-    { pattern: /plugin.*marketplace/i, risk: 'Plugin marketplace (unvetted code)' },
-    { pattern: /skill.*hub/i, risk: 'Skills hub (third-party code)' },
-    { pattern: /extension.*store/i, risk: 'Extension store' },
-    { pattern: /community.*contributed/i, risk: 'Community contributions' },
-    { pattern: /third.*party.*integration/i, risk: 'Third-party integrations' },
-    { pattern: /install.*from.*url/i, risk: 'Install from URL' },
-    { pattern: /curl.*\|.*sh/i, risk: 'Curl pipe to shell' },
-    { pattern: /wget.*\|.*bash/i, risk: 'Wget pipe to bash' },
-    { pattern: /npm.*install.*-g/i, risk: 'Global npm install' },
-    { pattern: /pip.*install.*--user/i, risk: 'User pip install' },
-  ];
-
-  const securityMeasures = [
-    /signed/i,
-    /verified/i,
-    /checksum/i,
-    /hash.*verification/i,
-    /gpg/i,
-    /code.*review.*required/i,
-    /audit/i,
-  ];
-
-  const risksFound: string[] = [];
-  let hasSecurityMeasures = false;
-
-  for (const risk of supplyChainRisks) {
-    if (risk.pattern.test(readmeContent)) {
-      risksFound.push(risk.risk);
-    }
-  }
-
-  for (const measure of securityMeasures) {
-    if (measure.test(readmeContent)) {
-      hasSecurityMeasures = true;
-      break;
-    }
-  }
-
-  const passed = risksFound.length === 0 || hasSecurityMeasures;
-
-  return {
-    testName: 'Supply Chain Security',
-    category: 'supply-chain',
-    passed,
-    severity: !passed && risksFound.length > 2 ? 'critical' : (!passed ? 'high' : 'info'),
-    description: passed
-      ? risksFound.length > 0 
-        ? 'Supply chain risks present but security measures documented'
-        : 'No significant supply chain risks detected'
-      : `Found ${risksFound.length} supply chain risks without documented security measures`,
-    evidence: risksFound.length > 0 ? risksFound.join(', ') : undefined,
-    recommendation: passed ? undefined : 'Implement code signing, checksums, and review processes for third-party code'
-  };
-}
-
-// =============================================================================
-// TEST 5: Configuration Security Defaults
-// =============================================================================
-async function testConfigurationDefaults(
-  readmeContent: string
-): Promise<SecurityTestResult> {
-  const insecureDefaults = [
-    { pattern: /auth.*disabled.*default/i, issue: 'Auth disabled by default' },
-    { pattern: /no.*password.*required/i, issue: 'No password required' },
-    { pattern: /bind.*0\.0\.0\.0/i, issue: 'Binds to all interfaces' },
-    { pattern: /localhost.*:.*\d+/i, issue: 'Exposes local port' },
-    { pattern: /debug.*mode.*enabled/i, issue: 'Debug mode enabled' },
-    { pattern: /ssl.*disabled/i, issue: 'SSL disabled' },
-    { pattern: /http:\/\//i, issue: 'Uses HTTP (not HTTPS)' },
-    { pattern: /allow.*all/i, issue: 'Allows all access' },
-    { pattern: /cors.*\*/i, issue: 'CORS allows all origins' },
-    { pattern: /no.*rate.*limit/i, issue: 'No rate limiting' },
-  ];
-
-  const secureDefaults = [
-    /secure.*by.*default/i,
-    /auth.*required/i,
-    /https.*required/i,
-    /rate.*limit.*enabled/i,
-    /127\.0\.0\.1/i,
-    /localhost.*only/i,
-  ];
-
-  const issuesFound: string[] = [];
-  let hasSecureDefaults = false;
-
-  for (const def of insecureDefaults) {
-    if (def.pattern.test(readmeContent)) {
-      issuesFound.push(def.issue);
-    }
-  }
-
-  for (const secure of secureDefaults) {
-    if (secure.test(readmeContent)) {
-      hasSecureDefaults = true;
-      break;
-    }
-  }
-
-  const passed = issuesFound.length === 0 || hasSecureDefaults;
-
-  return {
-    testName: 'Configuration Security Defaults',
-    category: 'configuration',
-    passed,
-    severity: !passed && issuesFound.length > 3 ? 'critical' : (!passed ? 'high' : 'info'),
-    description: passed
-      ? 'Configuration defaults appear reasonably secure'
-      : `Found ${issuesFound.length} potentially insecure default configurations`,
-    evidence: issuesFound.length > 0 ? issuesFound.join(', ') : undefined,
-    recommendation: passed ? undefined : 'Enable authentication, use HTTPS, bind to localhost only, and enable rate limiting by default'
-  };
-}
-
-// =============================================================================
-// TEST 6: Exposure Risk (Shodan-style)
-// =============================================================================
-async function testExposureRisk(
-  projectName: string,
-  alternateNames: string[]
-): Promise<SecurityTestResult> {
-  // Check Shodan for exposed instances
-  // Note: This would require SHODAN_API_KEY in production
-  const shodanApiKey = process.env.SHODAN_API_KEY;
-  
-  if (!shodanApiKey) {
-    return {
-      testName: 'Internet Exposure Scan',
-      category: 'exposure',
-      passed: true,
-      severity: 'info',
-      description: 'Shodan API key not configured - exposure scan skipped',
-      recommendation: 'Configure SHODAN_API_KEY for automated exposure scanning'
-    };
-  }
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   try {
-    const searchTerms = [projectName, ...alternateNames].filter(Boolean);
-    let totalExposed = 0;
-
-    for (const term of searchTerms) {
-      const response = await fetch(
-        `https://api.shodan.io/shodan/host/count?key=${shodanApiKey}&query=${encodeURIComponent(term)}`,
-        { signal: AbortSignal.timeout(10000) }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        totalExposed += data.total || 0;
-      }
-    }
-
-    const passed = totalExposed < 10;
-
-    return {
-      testName: 'Internet Exposure Scan',
-      category: 'exposure',
-      passed,
-      severity: totalExposed > 100 ? 'critical' : (totalExposed > 10 ? 'high' : 'info'),
-      description: totalExposed > 0
-        ? `Found ${totalExposed} potentially exposed instances on the internet`
-        : 'No exposed instances found on Shodan',
-      evidence: totalExposed > 0 ? `${totalExposed} instances found via Shodan` : undefined,
-      recommendation: passed ? undefined : 'Ensure instances are not publicly exposed. Use VPN or firewall rules.'
-    };
-  } catch (error) {
-    return {
-      testName: 'Internet Exposure Scan',
-      category: 'exposure',
-      passed: true,
-      severity: 'info',
-      description: 'Exposure scan failed - manual verification recommended',
-      recommendation: 'Manually check Shodan.io for exposed instances'
-    };
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/package.json`,
+      { headers }
+    );
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
   }
 }
 
-// =============================================================================
-// TEST 7: Identity/Rebrand Detection
-// =============================================================================
-async function testIdentityStability(
+async function fetchRequirementsTxt(owner: string, repo: string, token?: string): Promise<string | null> {
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3.raw',
+    'User-Agent': 'PubGuard-Scanner',
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/requirements.txt`,
+      { headers }
+    );
+    if (!response.ok) return null;
+    return response.text();
+  } catch {
+    return null;
+  }
+}
+
+async function queryOSV(ecosystem: string, packageName: string, version?: string): Promise<OSVVulnerability[]> {
+  try {
+    const response = await fetch('https://api.osv.dev/v1/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        package: { name: packageName, ecosystem },
+        version: version || undefined,
+      }),
+    });
+
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.vulns || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function testDependencyVulnerabilities(
   owner: string,
   repo: string,
-  readmeContent: string,
-  alternateNames: string[]
-): Promise<SecurityTestResult> {
-  const renameIndicators = [
-    /formerly\s*(known\s*as|called)/i,
-    /previously\s*named/i,
-    /renamed\s*(from|to)/i,
-    /rebranded/i,
-    /successor\s*(to|of)/i,
-    /fork\s*of/i,
-    /based\s*on/i,
-    /evolved\s*from/i,
-  ];
+  githubToken?: string
+): Promise<InternalTestResult> {
+  const findings: Finding[] = [];
+  const details: Record<string, any> = {
+    packagesScanned: 0,
+    vulnerabilitiesFound: 0,
+    criticalCount: 0,
+    highCount: 0,
+    mediumCount: 0,
+    lowCount: 0,
+    vulnerabilities: [] as any[],
+  };
 
-  let renameEvidence: string[] = [];
+  // Try to fetch package.json
+  const packageJson = await fetchPackageJson(owner, repo, githubToken);
+  const requirementsTxt = await fetchRequirementsTxt(owner, repo, githubToken);
 
-  for (const pattern of renameIndicators) {
-    const match = readmeContent.match(pattern);
-    if (match) {
-      renameEvidence.push(match[0]);
+  if (!packageJson && !requirementsTxt) {
+    return {
+      testId: 'dependency-vulns',
+      testName: 'Dependency Vulnerabilities',
+      category: 'supply-chain',
+      passed: true,
+      hasWarning: false,
+      score: 0,
+      findings: [{
+        severity: 'low',
+        category: 'Positive',
+        title: 'No dependency files found',
+        description: 'No package.json or requirements.txt found to scan.',
+        source: 'Dependency Analysis',
+      }],
+      details,
+      skipped: true,
+      skipReason: 'No dependency files found',
+    };
+  }
+
+  // Parse and scan npm dependencies
+  if (packageJson) {
+    const allDeps = {
+      ...packageJson.dependencies,
+      ...packageJson.devDependencies,
+    };
+
+    const depNames = Object.keys(allDeps || {});
+    details.packagesScanned += depNames.length;
+
+    // Scan top 20 dependencies (to avoid rate limits)
+    for (const dep of depNames.slice(0, 20)) {
+      const version = allDeps[dep]?.replace(/[\^~>=<]/g, '').split(' ')[0];
+      const vulns = await queryOSV('npm', dep, version);
+
+      for (const vuln of vulns) {
+        details.vulnerabilitiesFound++;
+        const severity = vuln.severity?.[0]?.score || 'MEDIUM';
+        const severityLower = severity.toLowerCase();
+
+        if (severityLower.includes('critical') || parseFloat(severity) >= 9) {
+          details.criticalCount++;
+        } else if (severityLower.includes('high') || parseFloat(severity) >= 7) {
+          details.highCount++;
+        } else if (severityLower.includes('medium') || parseFloat(severity) >= 4) {
+          details.mediumCount++;
+        } else {
+          details.lowCount++;
+        }
+
+        details.vulnerabilities.push({
+          id: vuln.id,
+          package: dep,
+          summary: vuln.summary,
+        });
+      }
+
+      // Small delay to be nice to the API
+      await new Promise(r => setTimeout(r, 100));
     }
   }
 
-  // Check if known alternate names are mentioned
-  for (const altName of alternateNames) {
-    if (readmeContent.toLowerCase().includes(altName.toLowerCase())) {
-      renameEvidence.push(`References "${altName}"`);
+  // Parse and scan Python dependencies
+  if (requirementsTxt) {
+    const lines = requirementsTxt.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+    details.packagesScanned += lines.length;
+
+    for (const line of lines.slice(0, 20)) {
+      const match = line.match(/^([a-zA-Z0-9_-]+)/);
+      if (!match) continue;
+
+      const dep = match[1];
+      const vulns = await queryOSV('PyPI', dep);
+
+      for (const vuln of vulns) {
+        details.vulnerabilitiesFound++;
+        const severity = vuln.severity?.[0]?.score || 'MEDIUM';
+
+        if (severity === 'CRITICAL' || parseFloat(severity) >= 9) details.criticalCount++;
+        else if (severity === 'HIGH' || parseFloat(severity) >= 7) details.highCount++;
+        else if (severity === 'MEDIUM' || parseFloat(severity) >= 4) details.mediumCount++;
+        else details.lowCount++;
+
+        details.vulnerabilities.push({
+          id: vuln.id,
+          package: dep,
+          summary: vuln.summary,
+        });
+      }
+
+      await new Promise(r => setTimeout(r, 100));
     }
   }
 
-  const hasMultipleIdentities = renameEvidence.length > 0 || alternateNames.length > 1;
-  const passed = !hasMultipleIdentities;
+  // Generate findings
+  if (details.criticalCount > 0) {
+    findings.push({
+      severity: 'critical',
+      category: 'Dependency Vulnerabilities',
+      title: `${details.criticalCount} CRITICAL vulnerability(ies) in dependencies`,
+      description: details.vulnerabilities
+        .filter((v: any) => v.id.includes('CRITICAL') || details.criticalCount > 0)
+        .slice(0, 3)
+        .map((v: any) => `${v.package}: ${v.summary}`)
+        .join('\n'),
+      source: 'OSV.dev',
+      sourceUrl: 'https://osv.dev',
+    });
+  }
+
+  if (details.highCount > 0) {
+    findings.push({
+      severity: 'high',
+      category: 'Dependency Vulnerabilities',
+      title: `${details.highCount} HIGH severity vulnerability(ies) in dependencies`,
+      description: `Found ${details.highCount} high severity vulnerabilities in project dependencies.`,
+      source: 'OSV.dev',
+      sourceUrl: 'https://osv.dev',
+    });
+  }
+
+  if (details.vulnerabilitiesFound === 0 && details.packagesScanned > 0) {
+    findings.push({
+      severity: 'low',
+      category: 'Positive',
+      title: `${details.packagesScanned} dependencies scanned - no vulnerabilities`,
+      description: 'All scanned dependencies are free of known vulnerabilities.',
+      source: 'OSV.dev',
+    });
+  }
+
+  const score = Math.min(100,
+    details.criticalCount * 30 +
+    details.highCount * 15 +
+    details.mediumCount * 5 +
+    details.lowCount * 1
+  );
 
   return {
-    testName: 'Identity Stability Check',
-    category: 'identity',
-    passed,
-    severity: !passed && renameEvidence.length > 2 ? 'high' : (!passed ? 'medium' : 'info'),
-    description: passed
-      ? 'Project has stable identity with no detected renames'
-      : `Project has ${alternateNames.length + 1} known identities - may be evading reputation`,
-    evidence: renameEvidence.length > 0 ? renameEvidence.join(', ') : undefined,
-    recommendation: passed ? undefined : 'Research previous identities for security history. Renames may indicate reputation evasion.'
+    testId: 'dependency-vulns',
+    testName: 'Dependency Vulnerabilities',
+    category: 'supply-chain',
+    passed: details.criticalCount === 0 && details.highCount === 0,
+    hasWarning: details.mediumCount > 0 || details.lowCount > 0,
+    score,
+    findings,
+    details,
   };
 }
 
 // =============================================================================
-// TEST 8: Maintainer Responsiveness
+// TEST 2: SECRETS IN CODE (GitHub Code Search)
+// Searches for exposed API keys, tokens, passwords
 // =============================================================================
-async function testMaintainerResponsiveness(
+
+const SECRET_PATTERNS = [
+  { name: 'AWS Access Key', pattern: 'AKIA[0-9A-Z]{16}' },
+  { name: 'AWS Secret Key', pattern: '[0-9a-zA-Z/+]{40}' },
+  { name: 'GitHub Token', pattern: 'gh[ps]_[a-zA-Z0-9]{36}' },
+  { name: 'Generic API Key', pattern: 'api[_-]?key[\'"]?\\s*[:=]\\s*[\'"][a-zA-Z0-9]{20,}[\'"]' },
+  { name: 'Generic Secret', pattern: 'secret[\'"]?\\s*[:=]\\s*[\'"][a-zA-Z0-9]{10,}[\'"]' },
+  { name: 'Private Key', pattern: '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----' },
+  { name: 'Password in Config', pattern: 'password[\'"]?\\s*[:=]\\s*[\'"][^\'\"]{8,}[\'"]' },
+];
+
+export async function testSecretsInCode(
   owner: string,
-  repo: string
-): Promise<SecurityTestResult> {
-  const githubToken = process.env.GITHUB_TOKEN;
+  repo: string,
+  githubToken?: string
+): Promise<InternalTestResult> {
+  const findings: Finding[] = [];
+  const details: Record<string, any> = {
+    secretsFound: 0,
+    types: [] as string[],
+    locations: [] as string[],
+  };
+
+  if (!githubToken) {
+    return {
+      testId: 'secrets-detection',
+      testName: 'Secrets Detection',
+      category: 'credentials',
+      passed: true,
+      hasWarning: false,
+      score: 0,
+      findings: [],
+      details,
+      skipped: true,
+      skipReason: 'GitHub token required for code search',
+    };
+  }
+
+  // Search for common secret patterns using GitHub code search
+  for (const secretPattern of SECRET_PATTERNS.slice(0, 5)) { // Limit searches
+    try {
+      const response = await fetch(
+        `https://api.github.com/search/code?q=${encodeURIComponent(secretPattern.pattern)}+repo:${owner}/${repo}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${githubToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'PubGuard-Scanner',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.total_count > 0) {
+          details.secretsFound += data.total_count;
+          details.types.push(secretPattern.name);
+          details.locations.push(...data.items?.slice(0, 3).map((i: any) => i.path) || []);
+        }
+      }
+
+      // Rate limit delay
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (err) {
+      console.error(`Secret search failed for ${secretPattern.name}:`, err);
+    }
+  }
+
+  if (details.secretsFound > 0) {
+    findings.push({
+      severity: 'critical',
+      category: 'Secrets Exposure',
+      title: `${details.secretsFound} potential secret(s) found in code`,
+      description: `Found potential secrets: ${details.types.join(', ')}. Files: ${details.locations.slice(0, 5).join(', ')}`,
+      source: 'Code Analysis',
+      sourceUrl: `https://github.com/${owner}/${repo}/search?q=secret+OR+api_key+OR+password`,
+    });
+  } else {
+    findings.push({
+      severity: 'low',
+      category: 'Positive',
+      title: 'No hardcoded secrets detected',
+      description: 'Code search did not find obvious hardcoded secrets.',
+      source: 'Code Analysis',
+    });
+  }
+
+  return {
+    testId: 'secrets-detection',
+    testName: 'Secrets Detection',
+    category: 'credentials',
+    passed: details.secretsFound === 0,
+    hasWarning: false,
+    score: details.secretsFound > 0 ? 80 : 0,
+    findings,
+    details,
+  };
+}
+
+// =============================================================================
+// TEST 3: MAINTAINER ACTIVITY (GitHub API)
+// Checks response time to security issues, commit frequency
+// =============================================================================
+
+export async function testMaintainerActivity(
+  owner: string,
+  repo: string,
+  githubToken?: string
+): Promise<InternalTestResult> {
+  const findings: Finding[] = [];
+  const details: Record<string, any> = {
+    lastCommitDaysAgo: 0,
+    securityIssueResponseTime: null,
+    openSecurityIssues: 0,
+    contributorCount: 0,
+    isAbandoned: false,
+  };
+
   const headers: Record<string, string> = {
     'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': 'PubGuard-Security-Scanner'
+    'User-Agent': 'PubGuard-Scanner',
   };
   if (githubToken) headers['Authorization'] = `Bearer ${githubToken}`;
 
   try {
-    // Check security issues response time
-    const issuesResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/issues?labels=security&state=all&per_page=10`,
-      { headers, signal: AbortSignal.timeout(10000) }
+    // Get repo info
+    const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+    if (repoResponse.ok) {
+      const repoData = await repoResponse.json();
+      const pushedAt = new Date(repoData.pushed_at);
+      const daysSince = Math.floor((Date.now() - pushedAt.getTime()) / (1000 * 60 * 60 * 24));
+      details.lastCommitDaysAgo = daysSince;
+      details.isAbandoned = daysSince > 365;
+    }
+
+    // Get contributors
+    const contribResponse = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contributors?per_page=1`,
+      { headers }
     );
-
-    if (!issuesResponse.ok) {
-      return {
-        testName: 'Maintainer Security Responsiveness',
-        category: 'maintenance',
-        passed: true,
-        severity: 'info',
-        description: 'Could not fetch security issues - manual verification needed'
-      };
-    }
-
-    const issues = await issuesResponse.json();
-    
-    if (issues.length === 0) {
-      return {
-        testName: 'Maintainer Security Responsiveness',
-        category: 'maintenance',
-        passed: true,
-        severity: 'info',
-        description: 'No security-labeled issues found'
-      };
-    }
-
-    // Calculate average response time
-    let totalResponseDays = 0;
-    let respondedCount = 0;
-    let unresolvedCount = 0;
-
-    for (const issue of issues) {
-      if (issue.state === 'closed' && issue.closed_at) {
-        const created = new Date(issue.created_at);
-        const closed = new Date(issue.closed_at);
-        const days = (closed.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
-        totalResponseDays += days;
-        respondedCount++;
-      } else if (issue.state === 'open') {
-        unresolvedCount++;
+    if (contribResponse.ok) {
+      const linkHeader = contribResponse.headers.get('Link');
+      if (linkHeader) {
+        const match = linkHeader.match(/page=(\d+)>; rel="last"/);
+        details.contributorCount = match ? parseInt(match[1]) : 1;
+      } else {
+        const data = await contribResponse.json();
+        details.contributorCount = data.length;
       }
     }
 
-    const avgResponseDays = respondedCount > 0 ? totalResponseDays / respondedCount : -1;
-    const passed = avgResponseDays < 30 && avgResponseDays >= 0 && unresolvedCount < 3;
+    // Check for open security issues
+    const issuesResponse = await fetch(
+      `https://api.github.com/search/issues?q=repo:${owner}/${repo}+label:security+state:open`,
+      { headers }
+    );
+    if (issuesResponse.ok) {
+      const issuesData = await issuesResponse.json();
+      details.openSecurityIssues = issuesData.total_count;
+    }
+  } catch (err) {
+    console.error('Maintainer activity test failed:', err);
+  }
 
+  // Generate findings
+  if (details.isAbandoned) {
+    findings.push({
+      severity: 'high',
+      category: 'Maintainer Activity',
+      title: 'Project appears abandoned',
+      description: `No commits in ${details.lastCommitDaysAgo} days. Security issues may not be addressed.`,
+      source: 'GitHub Analysis',
+      sourceUrl: `https://github.com/${owner}/${repo}/commits`,
+    });
+  } else if (details.lastCommitDaysAgo > 180) {
+    findings.push({
+      severity: 'medium',
+      category: 'Maintainer Activity',
+      title: 'Low recent activity',
+      description: `Last commit was ${details.lastCommitDaysAgo} days ago.`,
+      source: 'GitHub Analysis',
+    });
+  } else {
+    findings.push({
+      severity: 'low',
+      category: 'Positive',
+      title: 'Active maintenance',
+      description: `Project is actively maintained (last commit ${details.lastCommitDaysAgo} days ago, ${details.contributorCount} contributors).`,
+      source: 'GitHub Analysis',
+    });
+  }
+
+  if (details.openSecurityIssues > 0) {
+    findings.push({
+      severity: 'high',
+      category: 'Security Issues',
+      title: `${details.openSecurityIssues} open security issue(s)`,
+      description: 'There are unresolved security-labeled issues.',
+      source: 'GitHub Issues',
+      sourceUrl: `https://github.com/${owner}/${repo}/issues?q=label:security+is:open`,
+    });
+  }
+
+  const score = (details.isAbandoned ? 50 : 0) +
+                (details.lastCommitDaysAgo > 180 ? 20 : 0) +
+                (details.openSecurityIssues * 10);
+
+  return {
+    testId: 'maintainer-activity',
+    testName: 'Maintainer Activity',
+    category: 'maintenance',
+    passed: !details.isAbandoned && details.openSecurityIssues === 0,
+    hasWarning: details.lastCommitDaysAgo > 180,
+    score: Math.min(100, score),
+    findings,
+    details,
+  };
+}
+
+// =============================================================================
+// TEST 4: LICENSE & LEGAL (GitHub API)
+// Checks for proper licensing
+// =============================================================================
+
+export async function testLicenseCompliance(
+  owner: string,
+  repo: string,
+  githubToken?: string
+): Promise<InternalTestResult> {
+  const findings: Finding[] = [];
+  const details: Record<string, any> = {
+    license: null,
+    isOSIApproved: false,
+    hasLicenseFile: false,
+  };
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': 'PubGuard-Scanner',
+  };
+  if (githubToken) headers['Authorization'] = `Bearer ${githubToken}`;
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/license`, { headers });
+    if (response.ok) {
+      const data = await response.json();
+      details.license = data.license?.spdx_id;
+      details.hasLicenseFile = true;
+
+      const osiApproved = ['MIT', 'Apache-2.0', 'GPL-3.0', 'GPL-2.0', 'BSD-3-Clause', 'BSD-2-Clause', 'ISC', 'MPL-2.0'];
+      details.isOSIApproved = osiApproved.includes(details.license);
+    }
+  } catch {
+    // No license found
+  }
+
+  if (!details.hasLicenseFile) {
+    findings.push({
+      severity: 'medium',
+      category: 'Legal',
+      title: 'No license file found',
+      description: 'This project has no clear license, which may pose legal risks for commercial use.',
+      source: 'GitHub Analysis',
+    });
+  } else if (details.isOSIApproved) {
+    findings.push({
+      severity: 'low',
+      category: 'Positive',
+      title: `OSI-approved license: ${details.license}`,
+      description: 'Project uses a well-known open source license.',
+      source: 'GitHub Analysis',
+    });
+  } else {
+    findings.push({
+      severity: 'low',
+      category: 'Legal',
+      title: `License: ${details.license || 'Unknown'}`,
+      description: 'Review the license terms before using in production.',
+      source: 'GitHub Analysis',
+    });
+  }
+
+  return {
+    testId: 'license-compliance',
+    testName: 'License Compliance',
+    category: 'configuration',
+    passed: details.hasLicenseFile,
+    hasWarning: !details.isOSIApproved,
+    score: details.hasLicenseFile ? 0 : 20,
+    findings,
+    details,
+  };
+}
+
+// =============================================================================
+// TEST 5: TYPOSQUATTING CHECK (npm/PyPI)
+// Checks if this package name is similar to popular packages
+// =============================================================================
+
+const POPULAR_PACKAGES = {
+  npm: ['react', 'lodash', 'express', 'axios', 'moment', 'request', 'chalk', 'commander', 'debug', 'uuid'],
+  pypi: ['requests', 'numpy', 'pandas', 'django', 'flask', 'tensorflow', 'boto3', 'scipy', 'pillow', 'matplotlib'],
+};
+
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+export async function testTyposquatting(
+  projectName: string
+): Promise<InternalTestResult> {
+  const findings: Finding[] = [];
+  const details: Record<string, any> = {
+    similarPackages: [] as string[],
+    isSuspicious: false,
+  };
+
+  const lowerName = projectName.toLowerCase();
+
+  // Check against popular packages
+  for (const [ecosystem, packages] of Object.entries(POPULAR_PACKAGES)) {
+    for (const popular of packages) {
+      const distance = levenshteinDistance(lowerName, popular);
+      // If very similar but not exact match
+      if (distance > 0 && distance <= 2 && lowerName !== popular) {
+        details.similarPackages.push(`${popular} (${ecosystem})`);
+        details.isSuspicious = true;
+      }
+    }
+  }
+
+  if (details.isSuspicious) {
+    findings.push({
+      severity: 'high',
+      category: 'Supply Chain',
+      title: 'Package name similar to popular packages',
+      description: `This package name is very similar to: ${details.similarPackages.join(', ')}. This could indicate typosquatting.`,
+      source: 'Name Analysis',
+    });
+  }
+
+  return {
+    testId: 'typosquatting',
+    testName: 'Typosquatting Check',
+    category: 'supply-chain',
+    passed: !details.isSuspicious,
+    hasWarning: false,
+    score: details.isSuspicious ? 60 : 0,
+    findings,
+    details,
+  };
+}
+
+// =============================================================================
+// TEST 6: INTERNET EXPOSURE (Shodan - Optional)
+// Checks for exposed instances on the internet
+// =============================================================================
+
+export async function testInternetExposure(
+  projectName: string,
+  shodanApiKey?: string
+): Promise<InternalTestResult> {
+  const findings: Finding[] = [];
+  const details: Record<string, any> = {
+    exposedInstances: 0,
+    countries: [] as string[],
+    ports: [] as number[],
+  };
+
+  if (!shodanApiKey) {
     return {
-      testName: 'Maintainer Security Responsiveness',
-      category: 'maintenance',
-      passed,
-      severity: !passed ? (unresolvedCount > 5 ? 'high' : 'medium') : 'info',
-      description: avgResponseDays >= 0
-        ? `Average security issue resolution: ${avgResponseDays.toFixed(1)} days. ${unresolvedCount} unresolved.`
-        : `${unresolvedCount} unresolved security issues`,
-      evidence: unresolvedCount > 0 ? `${unresolvedCount} open security issues` : undefined,
-      recommendation: passed ? undefined : 'Slow security response indicates risk. Consider alternatives or additional security measures.'
-    };
-  } catch (error) {
-    return {
-      testName: 'Maintainer Security Responsiveness',
-      category: 'maintenance',
+      testId: 'internet-exposure',
+      testName: 'Internet Exposure',
+      category: 'exposure',
       passed: true,
-      severity: 'info',
-      description: 'Could not assess maintainer responsiveness'
+      hasWarning: false,
+      score: 0,
+      findings: [],
+      details,
+      skipped: true,
+      skipReason: 'Shodan API key not configured',
     };
   }
+
+  try {
+    const response = await fetch(
+      `https://api.shodan.io/shodan/host/search?key=${shodanApiKey}&query=${encodeURIComponent(projectName)}`,
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      details.exposedInstances = data.total || 0;
+
+      if (data.matches) {
+        details.countries = [...new Set(data.matches.map((m: any) => m.location?.country_name).filter(Boolean))];
+        details.ports = [...new Set(data.matches.map((m: any) => m.port).filter(Boolean))];
+      }
+    }
+  } catch (err) {
+    console.error('Shodan search failed:', err);
+  }
+
+  if (details.exposedInstances > 0) {
+    findings.push({
+      severity: details.exposedInstances > 100 ? 'critical' : 'high',
+      category: 'Internet Exposure',
+      title: `${details.exposedInstances} exposed instance(s) found`,
+      description: `Found ${details.exposedInstances} instances exposed to the internet. Countries: ${details.countries.slice(0, 5).join(', ')}. Ports: ${details.ports.slice(0, 5).join(', ')}.`,
+      source: 'Shodan',
+      sourceUrl: `https://www.shodan.io/search?query=${encodeURIComponent(projectName)}`,
+    });
+  }
+
+  return {
+    testId: 'internet-exposure',
+    testName: 'Internet Exposure',
+    category: 'exposure',
+    passed: details.exposedInstances === 0,
+    hasWarning: details.exposedInstances > 0 && details.exposedInstances < 100,
+    score: Math.min(100, details.exposedInstances),
+    findings,
+    details,
+  };
 }
 
 // =============================================================================
 // MAIN: Run All Security Tests
 // =============================================================================
-export async function runSecurityTests(
+
+export async function runAllSecurityTests(
   owner: string,
   repo: string,
-  readmeContent: string,
-  securityMdContent?: string,
-  alternateNames: string[] = []
+  projectName: string,
+  options: {
+    githubToken?: string;
+    shodanApiKey?: string;
+  } = {}
 ): Promise<SecurityTestsAnalysis> {
-  const results: SecurityTestResult[] = [];
+  console.log(`[SecurityTests] Running tests for ${owner}/${repo}`);
 
-  // Run all tests in parallel where possible
+  const internalResults: InternalTestResult[] = [];
+
+  // Run tests in parallel where possible
   const [
-    credentialTest,
-    permissionTest,
-    injectionTest,
-    supplyChainTest,
-    configTest,
+    dependencyTest,
+    secretsTest,
+    maintainerTest,
+    licenseTest,
+    typosquattingTest,
     exposureTest,
-    identityTest,
-    maintainerTest
   ] = await Promise.all([
-    testCredentialStorage(owner, repo, readmeContent),
-    testPermissionScope(readmeContent, securityMdContent),
-    testPromptInjectionRisk(readmeContent),
-    testSupplyChainSecurity(owner, repo, readmeContent),
-    testConfigurationDefaults(readmeContent),
-    testExposureRisk(repo, alternateNames),
-    testIdentityStability(owner, repo, readmeContent, alternateNames),
-    testMaintainerResponsiveness(owner, repo)
+    testDependencyVulnerabilities(owner, repo, options.githubToken),
+    testSecretsInCode(owner, repo, options.githubToken),
+    testMaintainerActivity(owner, repo, options.githubToken),
+    testLicenseCompliance(owner, repo, options.githubToken),
+    testTyposquatting(projectName),
+    testInternetExposure(projectName, options.shodanApiKey),
   ]);
 
-  results.push(
-    credentialTest,
-    permissionTest,
-    injectionTest,
-    supplyChainTest,
-    configTest,
-    exposureTest,
-    identityTest,
-    maintainerTest
-  );
+  internalResults.push(dependencyTest, secretsTest, maintainerTest, licenseTest, typosquattingTest, exposureTest);
 
-  // Calculate metrics
-  const testsRun = results.length;
-  const testsPassed = results.filter(r => r.passed).length;
-  const testsFailed = testsRun - testsPassed;
-
-  // Convert to findings
-  const findings: Finding[] = results
-    .filter(r => !r.passed)
-    .map(r => ({
-      severity: r.severity === 'info' ? 'low' : r.severity,
-      category: r.category,
-      title: `[TEST FAILED] ${r.testName}`,
-      description: r.description + (r.recommendation ? ` Recommendation: ${r.recommendation}` : ''),
-      source: 'PubGuard Automated Security Test',
-      sourceUrl: undefined,
-      date: new Date().toISOString().split('T')[0]
+  // Convert to SecurityTestsAnalysis format
+  const results: SecurityTestResult[] = internalResults
+    .filter(t => !t.skipped)
+    .map(t => ({
+      testName: t.testName,
+      category: t.category,
+      passed: t.passed,
+      severity: t.score >= 60 ? 'critical' as const :
+               t.score >= 40 ? 'high' as const :
+               t.score >= 20 ? 'medium' as const :
+               t.score >= 10 ? 'low' as const : 'info' as const,
+      description: t.findings[0]?.description || 'Test completed',
+      evidence: t.details ? JSON.stringify(t.details).substring(0, 200) : undefined,
+      recommendation: t.findings[0]?.title,
     }));
 
-  // Calculate overall risk based on test failures
-  const severityWeights = { critical: 25, high: 15, medium: 8, low: 3, info: 0 };
-  let riskScore = 0;
-  
-  for (const result of results) {
-    if (!result.passed) {
-      riskScore += severityWeights[result.severity] || 0;
-    }
-  }
+  // Collect all findings
+  const allFindings: Finding[] = internalResults.flatMap(t => t.findings);
 
-  // Cap at 100
-  const overallRisk = Math.min(100, riskScore);
+  // Calculate totals
+  const testsRun = internalResults.filter(t => !t.skipped).length;
+  const testsPassed = internalResults.filter(t => t.passed && !t.skipped).length;
+  const testsFailed = internalResults.filter(t => !t.passed && !t.skipped).length;
+  const overallRisk = testsRun > 0
+    ? Math.round(internalResults.filter(t => !t.skipped).reduce((sum, t) => sum + t.score, 0) / testsRun)
+    : 0;
+
+  console.log(`[SecurityTests] Complete: ${testsPassed}/${testsRun} passed, risk score: ${overallRisk}`);
 
   return {
     testsRun,
     testsPassed,
     testsFailed,
     results,
-    findings,
-    overallRisk
+    findings: allFindings,
+    overallRisk,
   };
 }

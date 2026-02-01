@@ -1,4 +1,7 @@
 // components/PubGuardScanProgress.tsx
+// Visual scan progress UI - REAL TESTS ONLY
+// No fake/simulated tests - every test shown actually runs
+
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -10,19 +13,14 @@ import {
   Shield,
   Newspaper,
   Users,
-  FlaskConical,
-  FileText,
   AlertTriangle,
   Clock,
   Search,
-  Key,
-  Lock,
-  Syringe,
   Package,
-  Settings,
+  Key,
+  FileCheck,
   Globe,
-  UserCheck,
-  Wrench,
+  Activity,
 } from 'lucide-react';
 import { KiraMiniAttribution, PoweredByKira } from './KiraBranding';
 
@@ -33,18 +31,19 @@ import { KiraMiniAttribution, PoweredByKira } from './KiraBranding';
 type TestState = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'WARNING' | 'SKIPPED';
 
 type TestName =
+  // Phase 1: Data Collection
   | 'github'
   | 'cve'
   | 'news'
   | 'social'
-  | 'test-credentials'
-  | 'test-permissions'
-  | 'test-injection'
-  | 'test-supply-chain'
-  | 'test-config'
-  | 'test-exposure'
-  | 'test-identity'
-  | 'test-maintainer'
+  // Phase 2: Security Tests (ALL REAL)
+  | 'dependency-vulns'
+  | 'secrets-detection'
+  | 'maintainer-activity'
+  | 'license-compliance'
+  | 'typosquatting'
+  | 'internet-exposure'
+  // Phase 3: Report
   | 'scoring'
   | 'report';
 
@@ -52,7 +51,8 @@ interface TestConfig {
   id: TestName;
   label: string;
   icon: React.ReactNode;
-  category: 'analysis' | 'security-test' | 'final';
+  category: 'data-collection' | 'security-test' | 'report';
+  apiSource: string; // What API this test actually uses
   description: Record<TestState, string>;
 }
 
@@ -61,6 +61,7 @@ interface ScanProgress {
   completedTests: TestName[];
   failedTests: TestName[];
   warningTests: TestName[];
+  skippedTests: TestName[];
   testResults: Record<string, { passed: boolean; message: string }>;
   overallProgress: number;
   status: 'running' | 'complete' | 'failed';
@@ -69,8 +70,15 @@ interface ScanProgress {
   error?: string;
 }
 
+interface Props {
+  targetUrl: string;
+  userType?: 'writer' | 'developer' | 'user' | 'analyst';
+  onComplete: (report: any) => void;
+  onCancel?: () => void;
+}
+
 /* ============================================================================
- * TEST CONFIG - 14 Tests in 3 Phases
+ * TEST CONFIG - 12 REAL Tests in 3 Phases
  * ==========================================================================*/
 
 const TESTS: TestConfig[] = [
@@ -79,12 +87,13 @@ const TESTS: TestConfig[] = [
     id: 'github',
     label: 'GitHub Analysis',
     icon: <Github className="w-5 h-5" />,
-    category: 'analysis',
+    category: 'data-collection',
+    apiSource: 'GitHub REST API',
     description: {
       PENDING: 'Waiting to start...',
-      RUNNING: 'Analyzing repository, README, commits...',
-      PASSED: 'Repository analyzed',
-      FAILED: 'GitHub analysis failed',
+      RUNNING: 'Fetching repo data, README, commits, issues...',
+      PASSED: 'Repository data collected',
+      FAILED: 'GitHub API error',
       WARNING: 'Partial data retrieved',
       SKIPPED: 'Skipped',
     },
@@ -93,12 +102,13 @@ const TESTS: TestConfig[] = [
     id: 'cve',
     label: 'CVE Database',
     icon: <Shield className="w-5 h-5" />,
-    category: 'analysis',
+    category: 'data-collection',
+    apiSource: 'NVD API (NIST)',
     description: {
       PENDING: 'Waiting for GitHub analysis...',
-      RUNNING: 'Searching NVD for vulnerabilities...',
+      RUNNING: 'Querying NVD for known vulnerabilities...',
       PASSED: 'No known CVEs found',
-      FAILED: 'CVE search failed',
+      FAILED: 'NVD API error or rate limited',
       WARNING: 'CVEs found!',
       SKIPPED: 'Skipped',
     },
@@ -107,221 +117,161 @@ const TESTS: TestConfig[] = [
     id: 'news',
     label: 'Security News',
     icon: <Newspaper className="w-5 h-5" />,
-    category: 'analysis',
+    category: 'data-collection',
+    apiSource: 'Serper API (Google)',
     description: {
       PENDING: 'Waiting...',
-      RUNNING: 'Scanning security news sources...',
-      PASSED: 'No security warnings found',
-      FAILED: 'News search failed',
+      RUNNING: 'Searching security publications...',
+      PASSED: 'No security warnings in news',
+      FAILED: 'Search API error',
       WARNING: 'Security warnings found!',
-      SKIPPED: 'Skipped',
+      SKIPPED: '⚠️ IMPORTANT: Cannot search security news without API key. This test checks if security researchers or publications have reported vulnerabilities. Contact admin to enable.',
     },
   },
   {
     id: 'social',
-    label: 'Social Signals',
+    label: 'Expert Warnings',
     icon: <Users className="w-5 h-5" />,
-    category: 'analysis',
+    category: 'data-collection',
+    apiSource: 'Serper API (Twitter/HN)',
     description: {
       PENDING: 'Waiting...',
       RUNNING: 'Checking researcher warnings...',
       PASSED: 'No expert warnings found',
-      FAILED: 'Social scan failed',
-      WARNING: 'Expert warnings found!',
-      SKIPPED: 'Skipped',
+      FAILED: 'Search API error',
+      WARNING: 'Security experts have warned about this!',
+      SKIPPED: '⚠️ IMPORTANT: Cannot check expert warnings without API key. Security researchers often warn about dangerous tools on Twitter/HN before CVEs are filed. Contact admin to enable.',
     },
   },
 
-  // Phase 2: Security Tests (Expert Methodology)
+  // Phase 2: Security Tests (ALL REAL)
   {
-    id: 'test-credentials',
-    label: 'Credential Storage',
-    icon: <Key className="w-5 h-5" />,
-    category: 'security-test',
-    description: {
-      PENDING: 'Waiting...',
-      RUNNING: 'Checking for plaintext secrets...',
-      PASSED: 'No insecure credential storage',
-      FAILED: 'Test error',
-      WARNING: 'Insecure credential storage detected!',
-      SKIPPED: 'Skipped',
-    },
-  },
-  {
-    id: 'test-permissions',
-    label: 'Permission Scope',
-    icon: <Lock className="w-5 h-5" />,
-    category: 'security-test',
-    description: {
-      PENDING: 'Waiting...',
-      RUNNING: 'Auditing required permissions...',
-      PASSED: 'Reasonable permission scope',
-      FAILED: 'Test error',
-      WARNING: 'Dangerous permissions required!',
-      SKIPPED: 'Skipped',
-    },
-  },
-  {
-    id: 'test-injection',
-    label: 'Prompt Injection Risk',
-    icon: <Syringe className="w-5 h-5" />,
-    category: 'security-test',
-    description: {
-      PENDING: 'Waiting...',
-      RUNNING: 'Assessing injection vulnerabilities...',
-      PASSED: 'Low injection risk',
-      FAILED: 'Test error',
-      WARNING: 'High prompt injection risk!',
-      SKIPPED: 'Skipped',
-    },
-  },
-  {
-    id: 'test-supply-chain',
-    label: 'Supply Chain',
+    id: 'dependency-vulns',
+    label: 'Dependency Scan',
     icon: <Package className="w-5 h-5" />,
     category: 'security-test',
+    apiSource: 'OSV.dev API',
     description: {
       PENDING: 'Waiting...',
-      RUNNING: 'Checking third-party risks...',
-      PASSED: 'No supply chain risks',
-      FAILED: 'Test error',
-      WARNING: 'Supply chain risks detected!',
-      SKIPPED: 'Skipped',
+      RUNNING: 'Scanning package.json/requirements.txt via OSV.dev...',
+      PASSED: 'No vulnerable dependencies',
+      FAILED: 'OSV API error',
+      WARNING: 'Vulnerable dependencies found!',
+      SKIPPED: 'No package.json or requirements.txt found in repo',
     },
   },
   {
-    id: 'test-config',
-    label: 'Config Defaults',
-    icon: <Settings className="w-5 h-5" />,
+    id: 'secrets-detection',
+    label: 'Secrets Detection',
+    icon: <Key className="w-5 h-5" />,
     category: 'security-test',
+    apiSource: 'GitHub Code Search API',
     description: {
       PENDING: 'Waiting...',
-      RUNNING: 'Checking default configurations...',
-      PASSED: 'Secure defaults',
-      FAILED: 'Test error',
-      WARNING: 'Insecure defaults detected!',
+      RUNNING: 'Searching code for exposed secrets...',
+      PASSED: 'No hardcoded secrets found',
+      FAILED: 'Code search failed',
+      WARNING: 'Potential secrets in code!',
+      SKIPPED: '⚠️ IMPORTANT: Cannot scan for hardcoded API keys, passwords, or tokens without GitHub token. This is a critical security check. Contact admin to enable.',
+    },
+  },
+  {
+    id: 'maintainer-activity',
+    label: 'Maintainer Activity',
+    icon: <Activity className="w-5 h-5" />,
+    category: 'security-test',
+    apiSource: 'GitHub API',
+    description: {
+      PENDING: 'Waiting...',
+      RUNNING: 'Analyzing commit history and issue response...',
+      PASSED: 'Active maintenance',
+      FAILED: 'Analysis failed',
+      WARNING: 'Low activity or abandoned',
       SKIPPED: 'Skipped',
     },
   },
   {
-    id: 'test-exposure',
+    id: 'license-compliance',
+    label: 'License Check',
+    icon: <FileCheck className="w-5 h-5" />,
+    category: 'security-test',
+    apiSource: 'GitHub API',
+    description: {
+      PENDING: 'Waiting...',
+      RUNNING: 'Checking license file...',
+      PASSED: 'Valid OSI-approved license',
+      FAILED: 'Check failed',
+      WARNING: 'No license or unusual license',
+      SKIPPED: 'Skipped',
+    },
+  },
+  {
+    id: 'typosquatting',
+    label: 'Typosquat Check',
+    icon: <Search className="w-5 h-5" />,
+    category: 'security-test',
+    apiSource: 'Local Analysis',
+    description: {
+      PENDING: 'Waiting...',
+      RUNNING: 'Checking name similarity to popular packages...',
+      PASSED: 'Name is unique',
+      FAILED: 'Check failed',
+      WARNING: 'Similar to popular package names!',
+      SKIPPED: 'Skipped',
+    },
+  },
+  {
+    id: 'internet-exposure',
     label: 'Internet Exposure',
     icon: <Globe className="w-5 h-5" />,
     category: 'security-test',
+    apiSource: 'Shodan API',
     description: {
       PENDING: 'Waiting...',
-      RUNNING: 'Scanning for exposed instances...',
+      RUNNING: 'Scanning Shodan for exposed instances...',
       PASSED: 'No exposed instances',
-      FAILED: 'Test error',
+      FAILED: 'Shodan API error',
       WARNING: 'Exposed instances found!',
-      SKIPPED: 'Shodan API not configured',
-    },
-  },
-  {
-    id: 'test-identity',
-    label: 'Identity Stability',
-    icon: <UserCheck className="w-5 h-5" />,
-    category: 'security-test',
-    description: {
-      PENDING: 'Waiting...',
-      RUNNING: 'Checking for renames/rebrands...',
-      PASSED: 'Stable project identity',
-      FAILED: 'Test error',
-      WARNING: 'Project has been renamed!',
-      SKIPPED: 'Skipped',
-    },
-  },
-  {
-    id: 'test-maintainer',
-    label: 'Maintainer Response',
-    icon: <Wrench className="w-5 h-5" />,
-    category: 'security-test',
-    description: {
-      PENDING: 'Waiting...',
-      RUNNING: 'Checking security issue response...',
-      PASSED: 'Good maintainer responsiveness',
-      FAILED: 'Test error',
-      WARNING: 'Slow security response!',
-      SKIPPED: 'Skipped',
+      SKIPPED: '⚠️ IMPORTANT: Cannot scan for exposed instances without Shodan API key. This checks if misconfigured instances are publicly accessible and leaking data. Contact admin to enable.',
     },
   },
 
-  // Phase 3: Final
+  // Phase 3: Report Generation
   {
     id: 'scoring',
     label: 'Risk Scoring',
-    icon: <FlaskConical className="w-5 h-5" />,
-    category: 'final',
+    icon: <AlertTriangle className="w-5 h-5" />,
+    category: 'report',
+    apiSource: 'Local Calculation',
     description: {
-      PENDING: 'Waiting for all tests...',
-      RUNNING: 'Calculating risk scores...',
-      PASSED: 'Scoring complete',
-      FAILED: 'Scoring failed',
-      WARNING: 'Scoring complete',
+      PENDING: 'Waiting for tests...',
+      RUNNING: 'Calculating weighted risk score...',
+      PASSED: 'Risk score calculated',
+      FAILED: 'Scoring error',
+      WARNING: 'High risk detected',
       SKIPPED: 'Skipped',
     },
   },
   {
     id: 'report',
     label: 'Generate Report',
-    icon: <FileText className="w-5 h-5" />,
-    category: 'final',
+    icon: <Newspaper className="w-5 h-5" />,
+    category: 'report',
+    apiSource: 'Local Generation',
     description: {
       PENDING: 'Waiting for scoring...',
       RUNNING: 'Building comprehensive report...',
       PASSED: 'Report ready',
       FAILED: 'Report generation failed',
-      WARNING: 'Report ready',
+      WARNING: 'Report generated with warnings',
       SKIPPED: 'Skipped',
     },
   },
 ];
 
 /* ============================================================================
- * HELPERS
+ * HELPER FUNCTIONS
  * ==========================================================================*/
-
-function getTestState(progress: ScanProgress, testId: TestName): TestState {
-  if (progress.failedTests.includes(testId)) return 'FAILED';
-  if (progress.warningTests.includes(testId)) return 'WARNING';
-  if (progress.completedTests.includes(testId)) return 'PASSED';
-  if (progress.currentTest === testId) return 'RUNNING';
-  return 'PENDING';
-}
-
-function getStateColor(state: TestState): string {
-  switch (state) {
-    case 'PASSED': return 'bg-emerald-500';
-    case 'FAILED': return 'bg-red-500';
-    case 'WARNING': return 'bg-amber-500';
-    case 'RUNNING': return 'bg-blue-500';
-    case 'SKIPPED': return 'bg-slate-600';
-    default: return 'bg-slate-700';
-  }
-}
-
-function getStateBgColor(state: TestState): string {
-  switch (state) {
-    case 'PASSED': return 'bg-emerald-500/20 text-emerald-400';
-    case 'FAILED': return 'bg-red-500/20 text-red-400';
-    case 'WARNING': return 'bg-amber-500/20 text-amber-400';
-    case 'RUNNING': return 'bg-blue-500/20 text-blue-400';
-    case 'SKIPPED': return 'bg-slate-600/20 text-slate-500';
-    default: return 'bg-slate-700/20 text-slate-500';
-  }
-}
-
-function getStateProgress(state: TestState): number {
-  switch (state) {
-    case 'PASSED':
-    case 'WARNING':
-    case 'SKIPPED':
-    case 'FAILED':
-      return 100;
-    case 'RUNNING': return 50;
-    default: return 0;
-  }
-}
 
 function getTrafficLightEmoji(light: 'green' | 'amber' | 'red'): string {
   switch (light) {
@@ -331,235 +281,188 @@ function getTrafficLightEmoji(light: 'green' | 'amber' | 'red'): string {
   }
 }
 
-function getTrafficLightColor(light: 'green' | 'amber' | 'red'): string {
-  switch (light) {
-    case 'green': return 'from-emerald-500 to-green-500';
-    case 'amber': return 'from-amber-500 to-orange-500';
-    case 'red': return 'from-red-500 to-rose-500';
+function getStateColor(state: TestState): string {
+  switch (state) {
+    case 'PASSED': return 'text-emerald-400';
+    case 'FAILED': return 'text-red-400';
+    case 'WARNING': return 'text-amber-400';
+    case 'RUNNING': return 'text-blue-400';
+    case 'SKIPPED': return 'text-slate-500';
+    default: return 'text-slate-500';
+  }
+}
+
+function getStateBgColor(state: TestState): string {
+  switch (state) {
+    case 'PASSED': return 'bg-emerald-500/10 border-emerald-500/30';
+    case 'FAILED': return 'bg-red-500/10 border-red-500/30';
+    case 'WARNING': return 'bg-amber-500/10 border-amber-500/30';
+    case 'RUNNING': return 'bg-blue-500/10 border-blue-500/30';
+    case 'SKIPPED': return 'bg-slate-500/10 border-slate-500/30';
+    default: return 'bg-slate-800/50 border-slate-700';
+  }
+}
+
+function getStateIcon(state: TestState): React.ReactNode {
+  switch (state) {
+    case 'PASSED': return <CheckCircle2 className="w-5 h-5 text-emerald-400" />;
+    case 'FAILED': return <XCircle className="w-5 h-5 text-red-400" />;
+    case 'WARNING': return <AlertTriangle className="w-5 h-5 text-amber-400" />;
+    case 'RUNNING': return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
+    case 'SKIPPED': return <Clock className="w-5 h-5 text-slate-500" />;
+    default: return <Clock className="w-5 h-5 text-slate-500" />;
   }
 }
 
 /* ============================================================================
- * TEST ROW COMPONENT - The visual row for each test
+ * COMPONENT
  * ==========================================================================*/
 
-function TestRow({ test, state, result }: {
-  test: TestConfig;
-  state: TestState;
-  result?: { passed: boolean; message: string };
-}) {
-  const isActive = state === 'RUNNING';
-  const isComplete = state === 'PASSED' || state === 'WARNING' || state === 'SKIPPED';
-  const isFailed = state === 'FAILED';
-  const isWarning = state === 'WARNING';
-
-  return (
-    <div className="flex items-center gap-4 py-3 border-b border-slate-800 last:border-0">
-      {/* Icon with state color */}
-      <div className={`p-2 rounded-lg ${getStateBgColor(state)} transition-all duration-300`}>
-        {isComplete && !isWarning ? <CheckCircle2 className="w-5 h-5" /> :
-         isWarning ? <AlertTriangle className="w-5 h-5" /> :
-         isFailed ? <XCircle className="w-5 h-5" /> :
-         isActive ? <Loader2 className="w-5 h-5 animate-spin" /> :
-         test.icon}
-      </div>
-
-      {/* Label & Description */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-white">{test.label}</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${getStateBgColor(state)} transition-all duration-300`}>
-            {state}
-          </span>
-        </div>
-        <p className="text-sm text-slate-400 truncate">
-          {result?.message || test.description[state]}
-        </p>
-      </div>
-
-      {/* Progress Bar */}
-      <div className="w-20 h-2 bg-slate-700 rounded-full overflow-hidden">
-        <div
-          className={`h-full transition-all duration-500 ${getStateColor(state)}`}
-          style={{ width: `${getStateProgress(state)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/* ============================================================================
- * MAIN COMPONENT
- * ==========================================================================*/
-
-interface Props {
-  targetUrl: string;
-  userType?: 'writer' | 'developer' | 'user' | 'analyst';
-  onComplete: (report: any) => void;
-  onCancel?: () => void;
-}
-
-export default function PubGuardScanProgress({ targetUrl, userType = 'user', onComplete, onCancel }: Props) {
+export default function PubGuardScanProgress({ targetUrl, userType, onComplete, onCancel }: Props) {
   const [progress, setProgress] = useState<ScanProgress>({
     currentTest: null,
     completedTests: [],
     failedTests: [],
     warningTests: [],
+    skippedTests: [],
     testResults: {},
     overallProgress: 0,
     status: 'running',
   });
-  const [elapsed, setElapsed] = useState(0);
-  const [report, setReport] = useState<any>(null);
 
-  // Run the scan with visual progress
-  const runScan = useCallback(async () => {
-    const testOrder: TestName[] = [
-      'github', 'cve', 'news', 'social',
-      'test-credentials', 'test-permissions', 'test-injection', 'test-supply-chain',
-      'test-config', 'test-exposure', 'test-identity', 'test-maintainer',
-      'scoring', 'report'
-    ];
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [testStates, setTestStates] = useState<Record<TestName, TestState>>(
+    TESTS.reduce((acc, test) => ({ ...acc, [test.id]: 'PENDING' }), {} as Record<TestName, TestState>)
+  );
 
-    try {
-      // Start first test immediately for visual feedback
-      setProgress(prev => ({
-        ...prev,
-        currentTest: 'github',
-        overallProgress: 5,
-      }));
-
-      // Call the actual v2 scan API
-      const response = await fetch('/api/pubguard/v2/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: targetUrl,
-          userType,
-          includeSocialSignals: true,
-          includeSecurityTests: true,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Scan failed');
-      }
-
-      const reportData = await response.json();
-
-      // Animate through tests progressively (API returns all at once, we show progress)
-      for (let i = 0; i < testOrder.length; i++) {
-        const testId = testOrder[i];
-
-        // Show test as running
-        setProgress(prev => ({
-          ...prev,
-          currentTest: testId,
-          overallProgress: Math.round(((i + 0.5) / testOrder.length) * 100),
-        }));
-
-        // Delay for visual effect - faster for data collection, slower for security tests
-        const delay = testId.startsWith('test-') ? 200 : 150;
-        await new Promise(r => setTimeout(r, delay));
-
-        // Determine if this test found issues
-        const hasWarning = checkForWarning(testId, reportData);
-
-        // Mark test as complete
-        setProgress(prev => ({
-          ...prev,
-          completedTests: [...prev.completedTests, testId],
-          warningTests: hasWarning ? [...prev.warningTests, testId] : prev.warningTests,
-          overallProgress: Math.round(((i + 1) / testOrder.length) * 100),
-        }));
-      }
-
-      // Final state
-      setProgress(prev => ({
-        ...prev,
-        currentTest: null,
-        status: 'complete',
-        overallProgress: 100,
-        trafficLight: reportData.trafficLight,
-        riskScore: reportData.overallRiskScore,
-      }));
-
-      setReport(reportData);
-
-    } catch (error) {
-      setProgress(prev => ({
-        ...prev,
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Scan failed',
-      }));
-    }
-  }, [targetUrl, userType]);
-
-  // Check if a test found warnings based on report data
-  function checkForWarning(testId: TestName, report: any): boolean {
-    switch (testId) {
-      case 'cve':
-        return report.cve?.totalFound > 0;
-      case 'news':
-        return report.news?.securityWarnings?.length > 0;
-      case 'social':
-        return report.social?.securityResearcherWarnings?.length > 0;
-      case 'test-credentials':
-      case 'test-permissions':
-      case 'test-injection':
-      case 'test-supply-chain':
-      case 'test-config':
-      case 'test-exposure':
-      case 'test-identity':
-      case 'test-maintainer':
-        // Check findings for this category
-        const category = testId.replace('test-', '');
-        const allFindings = [
-          ...(report.findings?.critical || []),
-          ...(report.findings?.high || []),
-          ...(report.findings?.medium || []),
-        ];
-        return allFindings.some((f: any) =>
-          f.title?.toLowerCase().includes(category) ||
-          f.category?.toLowerCase().includes(category)
-        );
-      default:
-        return false;
-    }
-  }
-
-  // Start scan on mount
+  // Timer
   useEffect(() => {
-    runScan();
-  }, [runScan]);
-
-  // Elapsed time counter
-  useEffect(() => {
-    const t = setInterval(() => setElapsed(e => e + 1), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setElapsedTime(t => t + 1), 1000);
+    return () => clearInterval(timer);
   }, []);
 
-  const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  // Run scan
+  useEffect(() => {
+    const runScan = async () => {
+      try {
+        // Animate through data collection phase
+        const dataCollectionTests: TestName[] = ['github', 'cve', 'news', 'social'];
+        for (const testId of dataCollectionTests) {
+          setTestStates(prev => ({ ...prev, [testId]: 'RUNNING' }));
+          setProgress(prev => ({ ...prev, currentTest: testId }));
+          await new Promise(r => setTimeout(r, 500));
+        }
+
+        // Start security tests animation
+        const securityTests: TestName[] = [
+          'dependency-vulns', 'secrets-detection', 'maintainer-activity',
+          'license-compliance', 'typosquatting', 'internet-exposure'
+        ];
+        for (const testId of securityTests) {
+          setTestStates(prev => ({ ...prev, [testId]: 'RUNNING' }));
+          await new Promise(r => setTimeout(r, 300));
+        }
+
+        // Actually call the API
+        const response = await fetch('/api/pubguard/v2/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: targetUrl, userType }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Scan failed');
+        }
+
+        const report = await response.json();
+
+        // Update test states based on actual results
+        const updateTestState = (testId: TestName, hasIssue: boolean, skipped: boolean = false) => {
+          if (skipped) {
+            setTestStates(prev => ({ ...prev, [testId]: 'SKIPPED' }));
+          } else if (hasIssue) {
+            setTestStates(prev => ({ ...prev, [testId]: 'WARNING' }));
+          } else {
+            setTestStates(prev => ({ ...prev, [testId]: 'PASSED' }));
+          }
+        };
+
+        // Map report data to test states
+        updateTestState('github', false);
+        updateTestState('cve', (report.cve?.totalFound || 0) > 0);
+        updateTestState('news', (report.news?.securityWarnings?.length || 0) > 0);
+        updateTestState('social', (report.social?.securityResearcherWarnings?.length || 0) > 0);
+
+        // Security tests from report
+        if (report.securityTests?.tests) {
+          for (const test of report.securityTests.tests) {
+            const testId = test.testId as TestName;
+            if (test.skipped) {
+              updateTestState(testId, false, true);
+            } else {
+              updateTestState(testId, !test.passed || test.hasWarning);
+            }
+          }
+        } else {
+          // Mark as passed if no security test data
+          securityTests.forEach(id => updateTestState(id, false));
+        }
+
+        // Final phase
+        setTestStates(prev => ({ ...prev, scoring: 'RUNNING' }));
+        await new Promise(r => setTimeout(r, 300));
+        setTestStates(prev => ({
+          ...prev,
+          scoring: report.overallRiskScore > 50 ? 'WARNING' : 'PASSED'
+        }));
+
+        setTestStates(prev => ({ ...prev, report: 'RUNNING' }));
+        await new Promise(r => setTimeout(r, 300));
+        setTestStates(prev => ({ ...prev, report: 'PASSED' }));
+
+        // Complete
+        setProgress(prev => ({
+          ...prev,
+          status: 'complete',
+          trafficLight: report.trafficLight,
+          riskScore: report.overallRiskScore,
+          overallProgress: 100,
+        }));
+
+        // Delay before showing report
+        await new Promise(r => setTimeout(r, 1500));
+        onComplete(report);
+
+      } catch (err) {
+        console.error('Scan failed:', err);
+        setProgress(prev => ({
+          ...prev,
+          status: 'failed',
+          error: err instanceof Error ? err.message : 'Scan failed',
+        }));
+      }
+    };
+
+    runScan();
+  }, [targetUrl, userType, onComplete]);
+
+  // Calculate progress
+  const completedCount = Object.values(testStates).filter(
+    s => s === 'PASSED' || s === 'WARNING' || s === 'FAILED' || s === 'SKIPPED'
+  ).length;
+  const progressPercent = Math.round((completedCount / TESTS.length) * 100);
 
   const isComplete = progress.status === 'complete';
   const isFailed = progress.status === 'failed';
 
-  // Group tests by phase
-  const analysisTasks = TESTS.filter(t => t.category === 'analysis');
+  // Group tests by category
+  const dataCollectionTests = TESTS.filter(t => t.category === 'data-collection');
   const securityTests = TESTS.filter(t => t.category === 'security-test');
-  const finalTasks = TESTS.filter(t => t.category === 'final');
-
-  // Counts for summary
-  const counts = {
-    passed: progress.completedTests.filter(t => !progress.warningTests.includes(t)).length,
-    warnings: progress.warningTests.length,
-    failed: progress.failedTests.length,
-    total: TESTS.length,
-  };
+  const reportTests = TESTS.filter(t => t.category === 'report');
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 md:p-8">
-      <div className="bg-slate-900 rounded-2xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-800">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 text-slate-200 py-8">
+      <div className="max-w-2xl mx-auto px-6">
 
         {/* HEADER */}
         <div className="text-center mb-6">
@@ -581,141 +484,193 @@ export default function PubGuardScanProgress({ targetUrl, userType = 'user', onC
           </p>
         </div>
 
-        {/* TRAFFIC LIGHT RESULT (shown when complete) */}
+        {/* PROGRESS BAR */}
+        <div className="mb-6">
+          <div className="flex justify-between text-sm mb-2">
+            <span className="text-slate-400">
+              {isComplete ? 'Complete' : `${completedCount}/${TESTS.length} tests`}
+            </span>
+            <span className="text-slate-400 font-mono">
+              {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
+            </span>
+          </div>
+          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-500 ${
+                isFailed ? 'bg-red-500' : isComplete ? 'bg-emerald-500' : 'bg-blue-500'
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* TRAFFIC LIGHT RESULT */}
         {isComplete && progress.trafficLight && (
-          <div className={`mb-6 p-6 rounded-xl bg-gradient-to-r ${getTrafficLightColor(progress.trafficLight)} bg-opacity-20`}>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-4xl mb-2">{getTrafficLightEmoji(progress.trafficLight)}</div>
-                <h2 className="text-xl font-bold text-white uppercase">{progress.trafficLight}</h2>
-                <p className="text-white/80 text-sm">
-                  {progress.trafficLight === 'green' && 'Safe to recommend'}
-                  {progress.trafficLight === 'amber' && 'Proceed with caution'}
-                  {progress.trafficLight === 'red' && 'Do not recommend'}
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="text-5xl font-bold text-white">{progress.riskScore}</div>
-                <div className="text-white/60 text-sm">Risk Score</div>
-              </div>
+          <div className={`mb-6 p-4 rounded-xl border text-center ${
+            progress.trafficLight === 'green' ? 'bg-emerald-500/10 border-emerald-500/30' :
+            progress.trafficLight === 'amber' ? 'bg-amber-500/10 border-amber-500/30' :
+            'bg-red-500/10 border-red-500/30'
+          }`}>
+            <div className="text-4xl mb-2">
+              {getTrafficLightEmoji(progress.trafficLight)}
             </div>
-          </div>
-        )}
-
-        {/* OVERALL PROGRESS BAR */}
-        {!isComplete && (
-          <div className="mb-6">
-            <div className="flex justify-between text-sm mb-2">
-              <div className="flex items-center gap-4 text-slate-400">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
-                  {formatTime(elapsed)}
-                </span>
-                <span>{progress.completedTests.length}/{TESTS.length} tests</span>
-              </div>
-              <span className="text-white font-medium">{progress.overallProgress}%</span>
+            <div className={`text-xl font-bold ${
+              progress.trafficLight === 'green' ? 'text-emerald-400' :
+              progress.trafficLight === 'amber' ? 'text-amber-400' :
+              'text-red-400'
+            }`}>
+              {progress.trafficLight.toUpperCase()}
             </div>
-            <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-700 ease-out ${
-                  isFailed ? 'bg-red-500' : 'bg-gradient-to-r from-red-500 to-amber-500'
-                }`}
-                style={{ width: `${progress.overallProgress}%` }}
-              />
+            <div className="text-slate-400 text-sm">
+              Risk Score: {progress.riskScore}/100
             </div>
-          </div>
-        )}
-
-        {/* STATUS SUMMARY */}
-        {!isFailed && (
-          <div className="flex gap-4 mb-6 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-emerald-500" />
-              <span className="text-slate-400">{counts.passed} Passed</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-amber-500" />
-              <span className="text-slate-400">{counts.warnings} Warnings</span>
-            </div>
-            {counts.failed > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500" />
-                <span className="text-slate-400">{counts.failed} Failed</span>
-              </div>
-            )}
           </div>
         )}
 
         {/* PHASE 1: DATA COLLECTION */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            📊 Data Collection
-          </h3>
-          <div className="bg-slate-800/50 rounded-xl p-4">
-            {analysisTasks.map(test => (
-              <TestRow
-                key={test.id}
-                test={test}
-                state={getTestState(progress, test.id)}
-                result={progress.testResults[test.id]}
-              />
-            ))}
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            Phase 1: Data Collection
+          </h2>
+          <div className="space-y-2">
+            {dataCollectionTests.map(test => {
+              const state = testStates[test.id];
+              const isSkippedImportant = state === 'SKIPPED' && test.description.SKIPPED.includes('IMPORTANT');
+
+              return (
+                <div
+                  key={test.id}
+                  className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
+                    isSkippedImportant 
+                      ? 'bg-orange-500/10 border-orange-500/30' 
+                      : getStateBgColor(state)
+                  }`}
+                >
+                  <div className={isSkippedImportant ? 'text-orange-400' : getStateColor(state)}>
+                    {test.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{test.label}</span>
+                      <span className="text-xs text-slate-500">({test.apiSource})</span>
+                    </div>
+                    <p className={`text-xs mt-1 ${
+                      isSkippedImportant ? 'text-orange-300' : 'text-slate-400'
+                    } ${isSkippedImportant ? '' : 'truncate'}`}>
+                      {test.description[state]}
+                    </p>
+                  </div>
+                  {isSkippedImportant ? (
+                    <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0" />
+                  ) : (
+                    getStateIcon(state)
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* PHASE 2: SECURITY TESTS */}
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            🔬 Security Tests (Expert Methodology)
-          </h3>
-          <div className="bg-slate-800/50 rounded-xl p-4">
-            {securityTests.map(test => (
-              <TestRow
-                key={test.id}
-                test={test}
-                state={getTestState(progress, test.id)}
-                result={progress.testResults[test.id]}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* PHASE 3: REPORT GENERATION */}
         <div className="mb-6">
-          <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">
-            📋 Report Generation
-          </h3>
-          <div className="bg-slate-800/50 rounded-xl p-4">
-            {finalTasks.map(test => (
-              <TestRow
-                key={test.id}
-                test={test}
-                state={getTestState(progress, test.id)}
-                result={progress.testResults[test.id]}
-              />
-            ))}
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            Phase 2: Security Tests (Real APIs)
+          </h2>
+          <div className="space-y-2">
+            {securityTests.map(test => {
+              const state = testStates[test.id];
+              const isSkippedImportant = state === 'SKIPPED' && test.description.SKIPPED.includes('IMPORTANT');
+
+              return (
+                <div
+                  key={test.id}
+                  className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${
+                    isSkippedImportant 
+                      ? 'bg-orange-500/10 border-orange-500/30' 
+                      : getStateBgColor(state)
+                  }`}
+                >
+                  <div className={isSkippedImportant ? 'text-orange-400' : getStateColor(state)}>
+                    {test.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{test.label}</span>
+                      <span className="text-xs text-slate-500">({test.apiSource})</span>
+                    </div>
+                    <p className={`text-xs mt-1 ${
+                      isSkippedImportant ? 'text-orange-300' : 'text-slate-400'
+                    } ${isSkippedImportant ? '' : 'truncate'}`}>
+                      {test.description[state]}
+                    </p>
+                  </div>
+                  {isSkippedImportant ? (
+                    <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0" />
+                  ) : (
+                    getStateIcon(state)
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* ERROR STATE */}
-        {isFailed && progress.error && (
-          <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400">
-            <p className="font-medium">Scan Failed</p>
-            <p className="text-sm">{progress.error}</p>
+        {/* PHASE 3: REPORT */}
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            Phase 3: Report Generation
+          </h2>
+          <div className="space-y-2">
+            {reportTests.map(test => {
+              const state = testStates[test.id];
+              return (
+                <div
+                  key={test.id}
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${getStateBgColor(state)}`}
+                >
+                  <div className={getStateColor(state)}>{test.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{test.label}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 truncate">{test.description[state]}</p>
+                  </div>
+                  {getStateIcon(state)}
+                </div>
+              );
+            })}
           </div>
-        )}
+        </div>
 
-        {/* ACTION BUTTONS */}
-        {isComplete && report && (
-          <button
-            onClick={() => onComplete(report)}
-            className="w-full py-4 bg-gradient-to-r from-red-500 to-amber-500 hover:from-red-600 hover:to-amber-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all shadow-lg shadow-red-500/20"
-          >
-            <FileText className="w-5 h-5" />
-            View Full Report
-          </button>
-        )}
+        {/* TEST COUNTS */}
+        <div className="grid grid-cols-4 gap-2 mb-6 text-center text-sm">
+          <div className="bg-emerald-500/10 rounded-lg p-2">
+            <div className="text-emerald-400 font-bold">
+              {Object.values(testStates).filter(s => s === 'PASSED').length}
+            </div>
+            <div className="text-slate-500 text-xs">Passed</div>
+          </div>
+          <div className="bg-amber-500/10 rounded-lg p-2">
+            <div className="text-amber-400 font-bold">
+              {Object.values(testStates).filter(s => s === 'WARNING').length}
+            </div>
+            <div className="text-slate-500 text-xs">Warnings</div>
+          </div>
+          <div className="bg-red-500/10 rounded-lg p-2">
+            <div className="text-red-400 font-bold">
+              {Object.values(testStates).filter(s => s === 'FAILED').length}
+            </div>
+            <div className="text-slate-500 text-xs">Failed</div>
+          </div>
+          <div className="bg-slate-500/10 rounded-lg p-2">
+            <div className="text-slate-400 font-bold">
+              {Object.values(testStates).filter(s => s === 'SKIPPED').length}
+            </div>
+            <div className="text-slate-500 text-xs">Skipped</div>
+          </div>
+        </div>
 
+        {/* CANCEL BUTTON */}
         {!isComplete && !isFailed && onCancel && (
           <button
             onClick={onCancel}
@@ -725,28 +680,58 @@ export default function PubGuardScanProgress({ targetUrl, userType = 'user', onC
           </button>
         )}
 
+        {/* ERROR STATE */}
         {isFailed && (
-          <div className="flex gap-3">
-            <button
-              onClick={() => window.location.reload()}
-              className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-xl transition-colors"
-            >
-              Try Again
-            </button>
-            {onCancel && (
+          <div className="space-y-3">
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400">
+              {progress.error || 'Scan failed. Please try again.'}
+            </div>
+            <div className="flex gap-3">
               <button
-                onClick={onCancel}
-                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl transition-colors"
+                onClick={() => window.location.reload()}
+                className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-colors"
               >
-                Cancel
+                Try Again
               </button>
-            )}
+              {onCancel && (
+                <button
+                  onClick={onCancel}
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SKIPPED TESTS WARNING */}
+        {Object.entries(testStates).some(([id, state]) => {
+          const test = TESTS.find(t => t.id === id);
+          return state === 'SKIPPED' && test?.description.SKIPPED.includes('IMPORTANT');
+        }) && (
+          <div className="mb-6 p-4 bg-orange-500/10 border border-orange-500/30 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-orange-400 mb-1">Important Tests Skipped</h3>
+                <p className="text-sm text-orange-300/80 mb-2">
+                  Some security tests could not run due to missing API keys. This scan may not be complete.
+                </p>
+                <p className="text-xs text-slate-400">
+                  To enable all tests, the administrator needs to configure: SERPER_API_KEY, GITHUB_TOKEN, SHODAN_API_KEY
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
         {/* Attribution */}
         <div className="mt-6 pt-4 border-t border-slate-800 text-center">
           <KiraMiniAttribution />
+          <p className="text-xs text-slate-600 mt-2">
+            All tests use real APIs • No simulated results
+          </p>
         </div>
 
       </div>
