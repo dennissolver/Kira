@@ -132,18 +132,24 @@ export default function KiraVoiceWidget({
       await conversation.startSession({
         agentId,
         connectionType: 'websocket', // Required: 'websocket' or 'webrtc'
-        // Pass userType and other context via dynamic variables
-        dynamicVariables: {
-          user_type: userType,
-          user_id: userId || 'anonymous',
-          session_id: sessionId || `session_${Date.now()}`,
+        // Pass userType via overrides
+        overrides: {
+          agent: {
+            prompt: {
+              prompt: `You are speaking with a ${userType}. Tailor your responses accordingly:
+- writer: Focus on liability, disclosures, reader safety
+- developer: Focus on actionable fixes, security checklist
+- user: Keep it simple, focus on "is it safe?"
+- analyst: Full technical details, CVEs, IOCs`,
+            },
+          },
         },
       });
     } catch (err) {
       console.error('Failed to start conversation:', err);
       setError('Failed to connect. Please try again.');
     }
-  }, [conversation, agentId, userType, userId, sessionId]);
+  }, [conversation, agentId, userType]);
 
   // End conversation
   const endConversation = useCallback(async () => {
