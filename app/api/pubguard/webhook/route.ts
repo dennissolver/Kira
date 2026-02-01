@@ -1,477 +1,623 @@
 // app/api/pubguard/webhook/route.ts
-// PubGuard Webhook for Kira Voice Agent
-// Handles tool calls from ElevenLabs Conversational AI
+// ElevenLabs ConvAI webhook handler for PubGuard voice agent
+// User-type-aware responses for: writer | developer | user | analyst
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-interface ToolCall {
-  tool_name: string;
-  parameters: Record<string, any>;
-}
+type UserType = 'writer' | 'developer' | 'user' | 'analyst';
 
-interface WebhookPayload {
-  tool_call?: ToolCall;
-  tool_calls?: ToolCall[];
-  conversation_id?: string;
-  agent_id?: string;
-}
-
-interface ToolResponse {
-  success: boolean;
-  data?: any;
-  error?: string;
-  speak?: string;  // What Kira should say
-}
-
-// ============================================================================
-// SUPABASE CLIENT
-// ============================================================================
-
-function getSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase not configured');
-  }
-  
-  return createClient(supabaseUrl, supabaseKey);
-}
-
-// ============================================================================
-// HMAC VERIFICATION
-// ============================================================================
-
-function verifyHmacSignature(payload: string, signature: string | null): boolean {
-  // Use PubGuard-specific secret, fallback to generic one
-  const secret = process.env.ELEVENLABS_WEBHOOK_PUBGUARD_SECRET || process.env.ELEVENLABS_WEBHOOK_SECRET;
-  
-  // If no secret configured, allow all requests (development mode)
-  if (!secret) {
-    console.log('[PubGuard Webhook] No HMAC secret configured, allowing request');
-    return true;
-  }
-  
-  // If no signature provided but secret is set, check if we should enforce
-  if (!signature) {
-    // For now, allow requests without signature to support ElevenLabs setup
-    // TODO: Enforce signature once ElevenLabs is configured properly
-    console.warn('[PubGuard Webhook] No signature provided, allowing request (enforcement disabled)');
-    return true;
-  }
-  
-  const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
-  
-  const isValid = crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature)
-  );
-  
-  if (!isValid) {
-    console.error('[PubGuard Webhook] Signature mismatch');
-  }
-  
-  return isValid;
-}
-
-// ============================================================================
-// TOOL HANDLERS
-// ============================================================================
-
-// Get the latest scan for a repository
-async function handleGetLatestScan(params: Record<string, any>): Promise<ToolResponse> {
-  const supabase = getSupabaseClient();
-  const searchTerm = params.repo_name || params.repo_url;
-  
-  if (!searchTerm) {
-    return {
-      success: false,
-      error: 'Please provide a repository name or URL',
-      speak: "I need a repository name or URL to look up. Which project would you like me to check?",
-    };
-  }
-
-  const { data, error } = await supabase
-    .from('pubguard_scans')
-    .select('*')
-    .or(`target_name.ilike.%${searchTerm}%,target_url.ilike.%${searchTerm}%`)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error || !data) {
-    return {
-      success: false,
-      error: 'No scan found for this repository',
-      speak: `I don't have any previous scans for ${searchTerm}. Would you like me to run a new scan?`,
-    };
-  }
-
-  const scan = data;
-  const daysAgo = Math.floor((Date.now() - new Date(scan.created_at).getTime()) / (1000 * 60 * 60 * 24));
-  
-  return {
-    success: true,
-    data: scan,
-    speak: `I found a scan for ${scan.target_name} from ${daysAgo === 0 ? 'today' : daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`}. ` +
-           `It has a ${scan.traffic_light.toUpperCase()} rating with a risk score of ${scan.risk_score} out of 100. ` +
-           `${scan.traffic_light === 'red' ? "I have serious concerns about this software." : 
-              scan.traffic_light === 'amber' ? "There are some risks to be aware of." : 
-              "It looks safe overall."} ` +
-           `Would you like me to go through the findings?`,
+interface ElevenLabsWebhookPayload {
+  type: 'tool_call' | 'conversation_started' | 'conversation_ended' | 'message';
+  conversation_id: string;
+  agent_id: string;
+  tool_call?: {
+    tool_name: string;
+    parameters: Record<string, any>;
+  };
+  message?: {
+    role: 'user' | 'assistant';
+    content: string;
+  };
+  // Custom data passed from the client
+  custom_data?: {
+    userType?: UserType;
+    userId?: string;
+    sessionId?: string;
   };
 }
 
-// Get scan history for a repository
-async function handleGetScanHistory(params: Record<string, any>): Promise<ToolResponse> {
-  const supabase = getSupabaseClient();
-  const searchTerm = params.repo_name;
-  const limit = params.limit || 5;
-  
-  if (!searchTerm) {
-    return {
-      success: false,
-      error: 'Please provide a repository name',
-      speak: "Which repository would you like to see the scan history for?",
-    };
-  }
+// ============================================================================
+// USER TYPE CONFIGURATION FOR VOICE RESPONSES
+// ============================================================================
 
-  const { data, error } = await supabase
-    .from('pubguard_scans')
-    .select('id, target_name, traffic_light, risk_score, created_at')
-    .or(`target_name.ilike.%${searchTerm}%,target_url.ilike.%${searchTerm}%`)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+const USER_TYPE_VOICE_CONFIG: Record<UserType, {
+  greeting: string;
+  focusAreas: string[];
+  terminology: 'simple' | 'technical' | 'balanced';
+  emphasize: string[];
+  deemphasize: string[];
+}> = {
+  writer: {
+    greeting: "Hi! I'm Kira, your security research assistant. I'll help you vet this tool so you can write about it responsibly. Let me check if it's safe to recommend to your readers.",
+    focusAreas: ['liability risk', 'reader safety', 'disclosure requirements', 'reputation risk'],
+    terminology: 'balanced',
+    emphasize: ['what to disclose', 'can you recommend', 'reader impact', 'viral growth concerns'],
+    deemphasize: ['technical CVE details', 'code-level fixes', 'CVSS scores'],
+  },
+  developer: {
+    greeting: "Hey! I'm Kira, your security analyst. Let me audit this codebase and give you actionable fixes before you ship. I'll focus on what you need to patch.",
+    focusAreas: ['vulnerabilities to fix', 'security best practices', 'dependency issues', 'config problems'],
+    terminology: 'technical',
+    emphasize: ['how to fix', 'security checklist', 'CI/CD integration', 'dependency updates'],
+    deemphasize: ['liability concerns', 'writer disclaimers', 'reader safety'],
+  },
+  user: {
+    greeting: "Hi there! I'm Kira. I'll help you figure out if this software is safe to install. I'll explain any risks in plain English so you can make an informed decision.",
+    focusAreas: ['is it safe', 'what permissions it needs', 'privacy concerns', 'trusted or not'],
+    terminology: 'simple',
+    emphasize: ['safe to install', 'what it accesses', 'privacy', 'trust indicators'],
+    deemphasize: ['CVE IDs', 'technical vulnerabilities', 'code-level details', 'CVSS scores'],
+  },
+  analyst: {
+    greeting: "Kira here, ready for a full security assessment. I'll give you the technical details - CVEs, attack surface, exposure data, and IOCs. Let's dive in.",
+    focusAreas: ['CVE details', 'attack vectors', 'exposure analysis', 'IOCs', 'CVSS scores'],
+    terminology: 'technical',
+    emphasize: ['CVE IDs', 'CVSS scores', 'attack surface', 'IOCs', 'technical mitigations'],
+    deemphasize: ['simplified explanations', 'writer guidance', 'basic safety tips'],
+  },
+};
 
-  if (error || !data || data.length === 0) {
-    return {
-      success: false,
-      error: 'No scan history found',
-      speak: `I don't have any scan history for ${searchTerm}.`,
-    };
-  }
+// ============================================================================
+// CONVERSATION STATE (in-memory, replace with Redis/DB for production)
+// ============================================================================
 
-  const historyText = data.map((scan, i) => {
-    const date = new Date(scan.created_at).toLocaleDateString();
-    return `${date}: ${scan.traffic_light.toUpperCase()} rating, score ${scan.risk_score}`;
-  }).join('. ');
+const conversationState = new Map<string, {
+  userType: UserType;
+  userId?: string;
+  sessionId?: string;
+  scanResults: any[];
+  startedAt: string;
+}>();
 
-  return {
-    success: true,
-    data: data,
-    speak: `I found ${data.length} scan${data.length > 1 ? 's' : ''} for ${data[0].target_name}. ${historyText}. ` +
-           `${data.length > 1 && data[0].risk_score !== data[data.length - 1].risk_score ? 
-             `The risk score has ${data[0].risk_score > data[data.length - 1].risk_score ? 'increased' : 'decreased'} over time.` : ''}`,
-  };
-}
+// ============================================================================
+// API CONFIGURATION
+// ============================================================================
 
-// List recent scans (user's or all)
-async function handleListRecentScans(params: Record<string, any>): Promise<ToolResponse> {
-  const supabase = getSupabaseClient();
-  const limit = params.limit || 10;
-  
-  let query = supabase
-    .from('pubguard_scans')
-    .select('id, target_name, traffic_light, risk_score, created_at, user_type')
-    .order('created_at', { ascending: false })
-    .limit(limit);
+const API_BASE = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-  if (params.user_id) {
-    query = query.eq('user_id', params.user_id);
-  }
-  
-  if (params.traffic_light) {
-    query = query.eq('traffic_light', params.traffic_light);
-  }
+// ============================================================================
+// SCAN EXECUTION
+// ============================================================================
 
-  const { data, error } = await query;
+async function executeScan(
+  toolName: string,
+  params: Record<string, any>,
+  conversationId: string,
+  agentId: string,
+  userType: UserType
+): Promise<any> {
+  let endpoint: string;
+  let body: Record<string, any>;
 
-  if (error || !data || data.length === 0) {
-    return {
-      success: false,
-      error: 'No recent scans found',
-      speak: "I don't have any recent scans to show you.",
-    };
-  }
-
-  const redCount = data.filter(s => s.traffic_light === 'red').length;
-  const amberCount = data.filter(s => s.traffic_light === 'amber').length;
-  const greenCount = data.filter(s => s.traffic_light === 'green').length;
-
-  return {
-    success: true,
-    data: data,
-    speak: `I found ${data.length} recent scans. ${redCount > 0 ? `${redCount} had RED ratings. ` : ''}` +
-           `${amberCount > 0 ? `${amberCount} had AMBER ratings. ` : ''}` +
-           `${greenCount > 0 ? `${greenCount} had GREEN ratings. ` : ''}` +
-           `The most recent was ${data[0].target_name} with a ${data[0].traffic_light.toUpperCase()} rating. ` +
-           `Would you like details on any of these?`,
-  };
-}
-
-// Compare two scans
-async function handleCompareScans(params: Record<string, any>): Promise<ToolResponse> {
-  const supabase = getSupabaseClient();
-
-  // If repo name provided, compare latest two scans
-  if (params.repo_name && !params.scan_id_1) {
-    const { data, error } = await supabase
-      .from('pubguard_scans')
-      .select('*')
-      .or(`target_name.ilike.%${params.repo_name}%,target_url.ilike.%${params.repo_name}%`)
-      .order('created_at', { ascending: false })
-      .limit(2);
-
-    if (error || !data || data.length < 2) {
-      return {
-        success: false,
-        error: 'Need at least 2 scans to compare',
-        speak: `I need at least two scans of ${params.repo_name} to make a comparison. I only found ${data?.length || 0}.`,
+  switch (toolName) {
+    case 'scan_github_repo':
+    case 'analyze_repository':
+    case 'full_security_scan':
+      // Use v2 scan endpoint with userType
+      endpoint = '/api/pubguard/v2/scan';
+      body = {
+        url: params.url || params.repo_url,
+        userType,
+        sessionId: conversationId,
       };
-    }
+      break;
 
-    const [newer, older] = data;
-    const scoreDiff = newer.risk_score - older.risk_score;
-    const improved = scoreDiff < 0;
+    case 'check_cve':
+    case 'search_vulnerabilities':
+      endpoint = '/api/pubguard/scan/cve';
+      body = {
+        query: params.query,
+        cveId: params.cve_id,
+        product: params.product,
+        vendor: params.vendor,
+      };
+      break;
 
-    return {
-      success: true,
-      data: { newer, older, scoreDiff },
-      speak: `Comparing the two most recent scans of ${newer.target_name}. ` +
-             `The risk score went from ${older.risk_score} to ${newer.risk_score}, ` +
-             `${improved ? `an improvement of ${Math.abs(scoreDiff)} points` : scoreDiff === 0 ? 'no change' : `an increase of ${scoreDiff} points`}. ` +
-             `${newer.traffic_light !== older.traffic_light ? 
-               `The rating changed from ${older.traffic_light.toUpperCase()} to ${newer.traffic_light.toUpperCase()}.` : 
-               `The rating stayed at ${newer.traffic_light.toUpperCase()}.`}`,
-    };
+    case 'search_security_news':
+    case 'check_news':
+      endpoint = '/api/pubguard/scan/news';
+      body = {
+        query: params.query,
+        product: params.product,
+      };
+      break;
+
+    case 'scan_infrastructure':
+    case 'check_exposures':
+      endpoint = '/api/pubguard/scan/exposures';
+      body = { target: params.target || params.domain || params.url };
+      break;
+
+    case 'generate_report':
+      endpoint = '/api/pubguard/report/generate';
+      body = {
+        agentId,
+        conversationId,
+        userType,
+        title: params.title || 'Security Assessment',
+        format: 'json',
+      };
+      break;
+
+    default:
+      throw new Error(`Unknown tool: ${toolName}`);
   }
 
-  return {
-    success: false,
-    error: 'Please provide a repository name or two scan IDs to compare',
-    speak: "Which repository would you like me to compare scans for?",
-  };
-}
+  const response = await fetch(`${API_BASE}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
-// Get specific finding details
-async function handleGetFindingDetails(params: Record<string, any>): Promise<ToolResponse> {
-  const supabase = getSupabaseClient();
-  
-  let scan;
-  
-  if (params.scan_id) {
-    const { data, error } = await supabase
-      .from('pubguard_scans')
-      .select('*')
-      .eq('id', params.scan_id)
-      .single();
-    
-    if (error || !data) {
-      return { success: false, error: 'Scan not found', speak: "I couldn't find that scan." };
-    }
-    scan = data;
-  } else if (params.repo_name) {
-    const { data, error } = await supabase
-      .from('pubguard_scans')
-      .select('*')
-      .or(`target_name.ilike.%${params.repo_name}%,target_url.ilike.%${params.repo_name}%`)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-    
-    if (error || !data) {
-      return { success: false, error: 'No scan found', speak: `I don't have any scans for ${params.repo_name}.` };
-    }
-    scan = data;
-  } else {
-    return { success: false, error: 'Need scan_id or repo_name', speak: "Which scan would you like finding details for?" };
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || `Scan failed: ${response.status}`);
   }
 
-  const findings = scan.findings as any;
-  const type = params.finding_type?.toLowerCase() || 'critical';
-  
-  const relevantFindings = findings[type] || [];
-  
-  if (relevantFindings.length === 0) {
-    return {
-      success: true,
-      data: { findings: [], type },
-      speak: `Good news! There are no ${type} findings for ${scan.target_name}.`,
-    };
+  const result = await response.json();
+
+  // Store scan result in conversation state
+  const state = conversationState.get(conversationId);
+  if (state) {
+    state.scanResults.push({ toolName, result, timestamp: new Date().toISOString() });
   }
 
-  const findingsList = relevantFindings.slice(0, 3).map((f: any) => f.title).join(', ');
-  
-  return {
-    success: true,
-    data: { findings: relevantFindings, type, scan_id: scan.id },
-    speak: `${scan.target_name} has ${relevantFindings.length} ${type} finding${relevantFindings.length > 1 ? 's' : ''}. ` +
-           `${relevantFindings.length <= 3 ? `They are: ${findingsList}.` : `The top ones are: ${findingsList}.`} ` +
-           `Would you like me to explain any of these in detail?`,
-  };
-}
-
-// Search scans
-async function handleSearchScans(params: Record<string, any>): Promise<ToolResponse> {
-  const supabase = getSupabaseClient();
-  
-  if (!params.query) {
-    return {
-      success: false,
-      error: 'Please provide a search query',
-      speak: "What would you like me to search for?",
-    };
-  }
-
-  let query = supabase
-    .from('pubguard_scans')
-    .select('id, target_name, target_url, traffic_light, risk_score, created_at')
-    .or(`target_name.ilike.%${params.query}%,target_url.ilike.%${params.query}%`)
-    .order('created_at', { ascending: false })
-    .limit(params.limit || 10);
-
-  if (params.traffic_light) {
-    query = query.eq('traffic_light', params.traffic_light);
-  }
-
-  const { data, error } = await query;
-
-  if (error || !data || data.length === 0) {
-    return {
-      success: false,
-      error: 'No matching scans found',
-      speak: `I couldn't find any scans matching "${params.query}".`,
-    };
-  }
-
-  return {
-    success: true,
-    data: data,
-    speak: `I found ${data.length} scan${data.length > 1 ? 's' : ''} matching "${params.query}". ` +
-           `${data.slice(0, 3).map(s => `${s.target_name} with a ${s.traffic_light.toUpperCase()} rating`).join(', ')}. ` +
-           `Would you like details on any of these?`,
-  };
+  return result;
 }
 
 // ============================================================================
-// MAIN HANDLER
+// USER-TYPE-AWARE VOICE FORMATTING
+// ============================================================================
+
+function formatForVoice(toolName: string, result: any, userType: UserType): string {
+  const config = USER_TYPE_VOICE_CONFIG[userType];
+
+  // Full scan response (v2)
+  if (toolName === 'scan_github_repo' || toolName === 'analyze_repository' || toolName === 'full_security_scan') {
+    return formatFullScanForVoice(result, userType, config);
+  }
+
+  // CVE response
+  if (toolName === 'check_cve' || toolName === 'search_vulnerabilities') {
+    return formatCveForVoice(result, userType, config);
+  }
+
+  // News response
+  if (toolName === 'search_security_news' || toolName === 'check_news') {
+    return formatNewsForVoice(result, userType, config);
+  }
+
+  // Infrastructure/exposure response
+  if (toolName === 'scan_infrastructure' || toolName === 'check_exposures') {
+    return formatExposureForVoice(result, userType, config);
+  }
+
+  // Report generation
+  if (toolName === 'generate_report') {
+    return formatReportForVoice(result, userType, config);
+  }
+
+  return 'Scan complete.';
+}
+
+function formatFullScanForVoice(result: any, userType: UserType, config: typeof USER_TYPE_VOICE_CONFIG.writer): string {
+  const trafficLight = result.trafficLight || 'amber';
+  const score = result.overallRiskScore || 50;
+  const name = result.target?.name || 'this repository';
+
+  // Base assessment
+  let response = '';
+
+  switch (userType) {
+    case 'writer':
+      if (trafficLight === 'green') {
+        response = `Good news! ${name} gets a green light with a risk score of ${score} out of 100. `;
+        response += `You can recommend this to your readers, but I'd suggest mentioning `;
+        if (result.writerGuidance?.mustDisclose?.length > 0) {
+          response += `these points: ${result.writerGuidance.mustDisclose.slice(0, 2).join(', and ')}. `;
+        } else {
+          response += `that users should still download from official sources. `;
+        }
+      } else if (trafficLight === 'amber') {
+        response = `Caution flag on ${name}. Risk score is ${score} out of 100. `;
+        response += `You can write about it, but you must disclose the risks to protect yourself and your readers. `;
+        if (result.writerGuidance?.mustDisclose?.length > 0) {
+          response += `Key disclosures: ${result.writerGuidance.mustDisclose.slice(0, 2).join(', and ')}. `;
+        }
+        response += `I've prepared a disclaimer you can copy. `;
+      } else {
+        response = `Red flag on ${name}. Risk score is ${score} out of 100. `;
+        response += `I'd recommend not featuring this in your publication. The liability risk is too high. `;
+        const criticalCount = result.findings?.critical?.length || 0;
+        if (criticalCount > 0) {
+          response += `There are ${criticalCount} critical security issues. `;
+        }
+      }
+      break;
+
+    case 'developer':
+      response = `Security audit complete for ${name}. Risk score: ${score} out of 100, rated ${trafficLight}. `;
+      const criticals = result.findings?.critical?.length || 0;
+      const highs = result.findings?.high?.length || 0;
+      if (criticals > 0 || highs > 0) {
+        response += `Found ${criticals} critical and ${highs} high severity issues that need fixing before release. `;
+        if (result.findings?.critical?.[0]) {
+          response += `Top priority: ${result.findings.critical[0].title}. `;
+        }
+      } else {
+        response += `No critical issues found. `;
+      }
+      // Security policy check
+      if (!result.github?.hasSecurityPolicy) {
+        response += `You're missing a SECURITY.md file - I'd add that for responsible disclosure. `;
+      }
+      break;
+
+    case 'user':
+      if (trafficLight === 'green') {
+        response = `This software looks safe to install! Risk score is ${score} out of 100. `;
+        response += `Just make sure you download it from the official source. `;
+      } else if (trafficLight === 'amber') {
+        response = `This software has some risks. Score is ${score} out of 100. `;
+        // Explain permissions simply
+        if (result.github?.permissions?.shellAccess) {
+          response += `It can run commands on your computer, so only install if you trust the developer. `;
+        }
+        if (result.github?.permissions?.credentialStorage) {
+          response += `It stores passwords or API keys, so check how it protects them. `;
+        }
+        response += `It's probably okay if you're careful, but read the warnings. `;
+      } else {
+        response = `I'd be careful with this one. Risk score is ${score} out of 100. `;
+        response += `There are some serious security concerns. Consider finding an alternative. `;
+      }
+      break;
+
+    case 'analyst':
+      response = `Assessment complete for ${name}. Traffic light: ${trafficLight}. Overall risk score: ${score} out of 100. `;
+      // Detailed breakdown
+      response += `Breaking down the risk categories: `;
+      if (result.riskCategories?.length > 0) {
+        const topRisks = result.riskCategories
+          .filter((c: any) => c.score >= 50)
+          .slice(0, 2);
+        if (topRisks.length > 0) {
+          response += topRisks.map((c: any) => `${c.name} at ${c.score}`).join(', ') + '. ';
+        }
+      }
+      // CVE info
+      const cveCount = result.cve?.totalFound || 0;
+      response += `CVE database returned ${cveCount} known vulnerabilities. `;
+      // Findings summary
+      const findings = result.findings;
+      if (findings) {
+        response += `Findings breakdown: ${findings.critical?.length || 0} critical, ${findings.high?.length || 0} high, ${findings.medium?.length || 0} medium. `;
+      }
+      response += `Full technical data is available in the JSON export. `;
+      break;
+  }
+
+  return response;
+}
+
+function formatCveForVoice(result: any, userType: UserType, config: typeof USER_TYPE_VOICE_CONFIG.writer): string {
+  const count = result.vulnerabilities?.length || 0;
+  const query = result.query || 'the target';
+
+  if (count === 0) {
+    if (userType === 'analyst') {
+      return `NVD database query for ${query} returned zero CVEs. Clean from a known vulnerability standpoint.`;
+    }
+    return `No known vulnerabilities found for ${query}. That's a good sign.`;
+  }
+
+  const critical = result.vulnerabilities?.filter((v: any) => v.severity === 'CRITICAL').length || 0;
+  const high = result.vulnerabilities?.filter((v: any) => v.severity === 'HIGH').length || 0;
+
+  switch (userType) {
+    case 'analyst':
+      let response = `CVE query returned ${count} results. ${critical} critical, ${high} high severity. `;
+      if (result.vulnerabilities?.[0]) {
+        const cve = result.vulnerabilities[0];
+        response += `Most severe: ${cve.id}, CVSS ${cve.cvssScore || 'N/A'}. ${cve.description?.slice(0, 80)}. `;
+      }
+      return response;
+
+    case 'developer':
+      return `Found ${count} CVEs. ${critical} critical and ${high} high need patching. ` +
+        `Check if your dependencies are up to date.`;
+
+    case 'writer':
+      if (critical > 0) {
+        return `Warning: ${critical} critical vulnerabilities found. This is a major disclosure item if you write about this tool.`;
+      }
+      return `Found ${count} vulnerabilities, ${high} are high severity. Worth mentioning in your article.`;
+
+    case 'user':
+      if (critical > 0) {
+        return `Heads up - there are ${critical} serious security flaws in this software. Be careful.`;
+      }
+      return count > 5
+        ? `There are some known security issues. Make sure you have the latest version.`
+        : `A few minor issues were found, but nothing too serious.`;
+
+    default:
+      return `Found ${count} vulnerabilities.`;
+  }
+}
+
+function formatNewsForVoice(result: any, userType: UserType, config: typeof USER_TYPE_VOICE_CONFIG.writer): string {
+  const count = result.articles?.length || 0;
+  const query = result.query || 'the target';
+
+  if (count === 0) {
+    return `No recent security news found about ${query}.`;
+  }
+
+  const warnings = result.articles?.filter((a: any) => a.isSecurityWarning) || [];
+
+  switch (userType) {
+    case 'writer':
+      if (warnings.length > 0) {
+        return `Alert: Found ${warnings.length} security warnings in the news. ` +
+          `"${warnings[0].title}" from ${warnings[0].source}. You'll want to address this in your coverage.`;
+      }
+      return `Found ${count} news articles. No major security warnings, but I'd still mention the media coverage.`;
+
+    case 'analyst':
+      return `News scan returned ${count} articles, ${warnings.length} flagged as security warnings. ` +
+        `Sources include: ${result.articles?.slice(0, 3).map((a: any) => a.source).join(', ')}.`;
+
+    case 'developer':
+      if (warnings.length > 0) {
+        return `${warnings.length} security warnings in the news about this project. ` +
+          `Check if these issues have been addressed.`;
+      }
+      return `${count} articles found, no major security concerns in the coverage.`;
+
+    case 'user':
+      if (warnings.length > 0) {
+        return `There's been some negative security news about this software. ` +
+          `You might want to wait until the issues are resolved.`;
+      }
+      return `The news coverage looks normal, no red flags.`;
+
+    default:
+      return `Found ${count} news articles.`;
+  }
+}
+
+function formatExposureForVoice(result: any, userType: UserType, config: typeof USER_TYPE_VOICE_CONFIG.writer): string {
+  const riskLevel = result.exposure?.riskLevel || 'unknown';
+  const target = result.target || 'the target';
+
+  switch (userType) {
+    case 'analyst':
+      return `Shodan scan for ${target}: Risk level ${riskLevel}. ` +
+        `${result.exposure?.exposedPorts?.length || 0} exposed ports. ` +
+        `${result.exposure?.riskFactors?.slice(0, 2).join('. ') || 'No major exposures'}.`;
+
+    case 'developer':
+      if (riskLevel === 'high' || riskLevel === 'critical') {
+        return `Your infrastructure has exposed services! Risk level: ${riskLevel}. ` +
+          `Check these issues: ${result.exposure?.riskFactors?.slice(0, 2).join(', ')}.`;
+      }
+      return `Infrastructure scan looks okay. Risk level: ${riskLevel}.`;
+
+    case 'writer':
+      if (riskLevel === 'high' || riskLevel === 'critical') {
+        return `Found exposed infrastructure - this is a disclosure item. ` +
+          `The tool's servers have security gaps.`;
+      }
+      return `Infrastructure check passed, no major exposures.`;
+
+    case 'user':
+      if (riskLevel === 'high' || riskLevel === 'critical') {
+        return `The company's servers have some security issues. ` +
+          `Your data might not be as protected as it should be.`;
+      }
+      return `Their servers look reasonably secure.`;
+
+    default:
+      return `Exposure scan complete. Risk level: ${riskLevel}.`;
+  }
+}
+
+function formatReportForVoice(result: any, userType: UserType, config: typeof USER_TYPE_VOICE_CONFIG.writer): string {
+  const overallRisk = result.summary?.overallRisk || 'unknown';
+  const score = result.summary?.overallScore || 50;
+
+  switch (userType) {
+    case 'writer':
+      return `Your PubGuard report is ready. Overall verdict: ${overallRisk}. ` +
+        `It includes your disclosure checklist and a copy-paste disclaimer. ` +
+        `You can download it as a PDF for your records.`;
+
+    case 'developer':
+      return `Security report generated. Risk score: ${score} out of 100. ` +
+        `It includes your action items and security checklist. ` +
+        `Share this with your team before release.`;
+
+    case 'user':
+      return `Your safety report is ready. The verdict is: ${overallRisk}. ` +
+        `It explains everything in plain English.`;
+
+    case 'analyst':
+      return `Full assessment report generated. Overall risk: ${overallRisk}, score ${score}. ` +
+        `Includes IOCs, CVE details, and technical findings. ` +
+        `JSON export available for integration.`;
+
+    default:
+      return `Report generated. Overall risk: ${overallRisk}.`;
+  }
+}
+
+// ============================================================================
+// WEBHOOK HANDLER
 // ============================================================================
 
 export async function POST(request: NextRequest) {
   try {
-    const rawBody = await request.text();
-    const signature = request.headers.get('x-elevenlabs-signature') || 
-                      request.headers.get('x-webhook-signature');
+    const payload: ElevenLabsWebhookPayload = await request.json();
 
-    // Verify HMAC signature
-    if (!verifyHmacSignature(rawBody, signature)) {
-      console.error('[PubGuard Webhook] Invalid signature');
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    console.log('PubGuard webhook received:', payload.type, payload.conversation_id);
+
+    // Get or set userType from custom_data or default
+    let userType: UserType = 'user';
+
+    // Check URL params (passed via widget configuration)
+    const url = new URL(request.url);
+    const urlUserType = url.searchParams.get('userType');
+    if (urlUserType && ['writer', 'developer', 'user', 'analyst'].includes(urlUserType)) {
+      userType = urlUserType as UserType;
     }
 
-    const payload: WebhookPayload = JSON.parse(rawBody);
-    console.log('[PubGuard Webhook] Received:', JSON.stringify(payload, null, 2));
-
-    // Handle single tool call or array of tool calls
-    const toolCalls = payload.tool_calls || (payload.tool_call ? [payload.tool_call] : []);
-
-    if (toolCalls.length === 0) {
-      return NextResponse.json({ error: 'No tool calls provided' }, { status: 400 });
+    // Check custom_data from payload (passed via signed URL or widget)
+    if (payload.custom_data?.userType) {
+      userType = payload.custom_data.userType;
     }
 
-    // Process each tool call
-    const results: ToolResponse[] = [];
+    // Handle different event types
+    switch (payload.type) {
+      case 'conversation_started':
+        // Initialize conversation state
+        conversationState.set(payload.conversation_id, {
+          userType,
+          userId: payload.custom_data?.userId,
+          sessionId: payload.custom_data?.sessionId,
+          scanResults: [],
+          startedAt: new Date().toISOString(),
+        });
 
-    for (const toolCall of toolCalls) {
-      const { tool_name, parameters } = toolCall;
-      console.log(`[PubGuard Webhook] Processing tool: ${tool_name}`, parameters);
+        console.log(`PubGuard conversation started: ${payload.conversation_id} (userType: ${userType})`);
 
-      let result: ToolResponse;
+        // Return the user-type-specific greeting
+        const config = USER_TYPE_VOICE_CONFIG[userType];
+        return NextResponse.json({
+          success: true,
+          greeting: config.greeting,
+          userType,
+        });
 
-      switch (tool_name) {
-        case 'get_latest_scan':
-        case 'get_scan':
-        case 'lookup_scan':
-          result = await handleGetLatestScan(parameters);
-          break;
+      case 'tool_call':
+        if (!payload.tool_call) {
+          return NextResponse.json({ error: 'Missing tool_call data' }, { status: 400 });
+        }
 
-        case 'get_scan_history':
-        case 'list_scan_history':
-          result = await handleGetScanHistory(parameters);
-          break;
+        // Get userType from conversation state
+        const state = conversationState.get(payload.conversation_id);
+        if (state) {
+          userType = state.userType;
+        }
 
-        case 'list_recent_scans':
-        case 'get_recent_scans':
-          result = await handleListRecentScans(parameters);
-          break;
+        try {
+          const result = await executeScan(
+            payload.tool_call.tool_name,
+            payload.tool_call.parameters,
+            payload.conversation_id,
+            payload.agent_id,
+            userType
+          );
 
-        case 'compare_scans':
-        case 'compare_scan_results':
-          result = await handleCompareScans(parameters);
-          break;
+          const voiceResponse = formatForVoice(payload.tool_call.tool_name, result, userType);
 
-        case 'get_finding_details':
-        case 'get_findings':
-        case 'explain_finding':
-          result = await handleGetFindingDetails(parameters);
-          break;
+          return NextResponse.json({
+            success: true,
+            result,
+            voice_response: voiceResponse,
+            userType,
+          });
+        } catch (error) {
+          console.error('Tool execution error:', error);
 
-        case 'search_scans':
-        case 'find_scans':
-          result = await handleSearchScans(parameters);
-          break;
-
-        default:
-          result = {
-            success: false,
-            error: `Unknown tool: ${tool_name}`,
-            speak: `I'm not sure how to handle that request. I can help you look up scan results, compare scans, or search through scan history.`,
+          // User-type-aware error messages
+          const errorMessages: Record<UserType, string> = {
+            writer: "I ran into a problem running that scan. Let me try again, or you can try a different repository.",
+            developer: "Scan failed - check the logs for details. Want me to retry?",
+            user: "Oops, something went wrong. Let's try that again.",
+            analyst: `Tool execution failed: ${error instanceof Error ? error.message : 'Unknown error'}. Retry or check endpoint status.`,
           };
-      }
 
-      results.push(result);
+          return NextResponse.json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Tool execution failed',
+            voice_response: errorMessages[userType],
+          });
+        }
+
+      case 'conversation_ended':
+        console.log(`PubGuard conversation ended: ${payload.conversation_id}`);
+
+        // Clean up conversation state
+        const endedState = conversationState.get(payload.conversation_id);
+        if (endedState) {
+          console.log(`Session had ${endedState.scanResults.length} scans, userType: ${endedState.userType}`);
+        }
+        conversationState.delete(payload.conversation_id);
+
+        return NextResponse.json({ success: true });
+
+      case 'message':
+        console.log(`Message (${payload.message?.role}): ${payload.message?.content?.slice(0, 100)}`);
+        return NextResponse.json({ success: true });
+
+      default:
+        return NextResponse.json({ success: true });
     }
-
-    // Return response in ElevenLabs expected format
-    const response = results.length === 1 ? results[0] : { results };
-    
-    return NextResponse.json(response);
-
   } catch (error) {
-    console.error('[PubGuard Webhook] Error:', error);
+    console.error('Webhook error:', error);
     return NextResponse.json(
-      { 
-        success: false,
-        error: error instanceof Error ? error.message : 'Webhook processing failed',
-        speak: "I encountered an error processing that request. Please try again.",
-      },
+      { error: error instanceof Error ? error.message : 'Webhook processing failed' },
       { status: 500 }
     );
   }
 }
 
-// Health check endpoint
-export async function GET() {
+// ============================================================================
+// HEALTH CHECK / INFO ENDPOINT
+// ============================================================================
+
+export async function GET(request: NextRequest) {
+  const url = new URL(request.url);
+  const userType = url.searchParams.get('userType') || 'user';
+
   return NextResponse.json({
     status: 'ok',
-    service: 'PubGuard Kira Webhook',
-    version: '1.0',
+    service: 'PubGuard Security Scanner - Kira Voice Agent',
+    version: '2.0',
+    userTypes: ['writer', 'developer', 'user', 'analyst'],
+    currentUserType: userType,
+    greeting: USER_TYPE_VOICE_CONFIG[userType as UserType]?.greeting || USER_TYPE_VOICE_CONFIG.user.greeting,
+    endpoints: {
+      scan: '/api/pubguard/v2/scan',
+      github: '/api/pubguard/scan/github',
+      cve: '/api/pubguard/scan/cve',
+      news: '/api/pubguard/scan/news',
+      exposures: '/api/pubguard/scan/exposures',
+      report: '/api/pubguard/report/generate',
+    },
     tools: [
-      'get_latest_scan',
-      'get_scan_history',
-      'list_recent_scans',
-      'compare_scans',
-      'get_finding_details',
-      'search_scans',
+      'scan_github_repo',
+      'full_security_scan',
+      'check_cve',
+      'search_security_news',
+      'scan_infrastructure',
+      'generate_report',
     ],
+    activeConversations: conversationState.size,
   });
 }
