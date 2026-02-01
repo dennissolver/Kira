@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
       allFindings.push(...githubFindings);
 
       // Add alternate names from GitHub analysis
-      if (githubAnalysis.previousNames.length > 0) {
+      if (githubAnalysis && githubAnalysis.previousNames && githubAnalysis.previousNames.length > 0) {
         for (const prevName of githubAnalysis.previousNames) {
           if (!alternateNames.includes(prevName)) {
             alternateNames.push(prevName);
@@ -309,7 +309,8 @@ export async function POST(request: NextRequest) {
     report.reportHash = generateReportHash(report);
 
     // 8. Save to Supabase (async, don't block response)
-    saveScanToSupabase(report, userType, userId, sessionId, duration)
+    // Signature: saveScanToSupabase(report, durationMs, userId?, sessionId?, userType?)
+    saveScanToSupabase(report, duration, userId, sessionId, userType)
       .then(result => {
         if (result) {
           console.log(`[PubGuard] Saved to Supabase: ${result.id}`);
