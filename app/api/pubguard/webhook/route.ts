@@ -1,6 +1,7 @@
 // app/api/pubguard/webhook/route.ts
 // ElevenLabs ConvAI webhook handler for PubGuard voice agent
 // User-type-aware responses for: writer | developer | user | analyst
+// FIXED: Now passes userId and sessionId through to scan endpoints
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -90,7 +91,7 @@ const conversationState = new Map<string, {
 const API_BASE = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 // ============================================================================
-// SCAN EXECUTION
+// SCAN EXECUTION - FIXED: Now accepts and passes userId/sessionId
 // ============================================================================
 
 async function executeScan(
@@ -98,7 +99,9 @@ async function executeScan(
   params: Record<string, any>,
   conversationId: string,
   agentId: string,
-  userType: UserType
+  userType: UserType,
+  userId?: string,
+  sessionId?: string
 ): Promise<any> {
   let endpoint: string;
   let body: Record<string, any>;
@@ -107,12 +110,15 @@ async function executeScan(
     case 'scan_github_repo':
     case 'analyze_repository':
     case 'full_security_scan':
-      // Use v2 scan endpoint with userType
+      // Use v2 scan endpoint with userType and userId
       endpoint = '/api/pubguard/v2/scan';
       body = {
         url: params.url || params.repo_url,
         userType,
-        sessionId: conversationId,
+        sessionId: sessionId || conversationId,
+        userId,
+        agentId,
+        conversationId,
       };
       break;
 
@@ -148,6 +154,7 @@ async function executeScan(
         agentId,
         conversationId,
         userType,
+        userId,
         title: params.title || 'Security Assessment',
         format: 'json',
       };
@@ -219,7 +226,6 @@ function formatFullScanForVoice(result: any, userType: UserType, config: typeof 
   const score = result.overallRiskScore || 50;
   const name = result.target?.name || 'this repository';
 
-  // Base assessment
   let response = '';
 
   switch (userType) {
@@ -261,7 +267,6 @@ function formatFullScanForVoice(result: any, userType: UserType, config: typeof 
       } else {
         response += `No critical issues found. `;
       }
-      // Security policy check
       if (!result.github?.hasSecurityPolicy) {
         response += `You're missing a SECURITY.md file - I'd add that for responsible disclosure. `;
       }
@@ -273,7 +278,6 @@ function formatFullScanForVoice(result: any, userType: UserType, config: typeof 
         response += `Just make sure you download it from the official source. `;
       } else if (trafficLight === 'amber') {
         response = `This software has some risks. Score is ${score} out of 100. `;
-        // Explain permissions simply
         if (result.github?.permissions?.shellAccess) {
           response += `It can run commands on your computer, so only install if you trust the developer. `;
         }
@@ -289,7 +293,6 @@ function formatFullScanForVoice(result: any, userType: UserType, config: typeof 
 
     case 'analyst':
       response = `Assessment complete for ${name}. Traffic light: ${trafficLight}. Overall risk score: ${score} out of 100. `;
-      // Detailed breakdown
       response += `Breaking down the risk categories: `;
       if (result.riskCategories?.length > 0) {
         const topRisks = result.riskCategories
@@ -299,10 +302,8 @@ function formatFullScanForVoice(result: any, userType: UserType, config: typeof 
           response += topRisks.map((c: any) => `${c.name} at ${c.score}`).join(', ') + '. ';
         }
       }
-      // CVE info
       const cveCount = result.cve?.totalFound || 0;
       response += `CVE database returned ${cveCount} known vulnerabilities. `;
-      // Findings summary
       const findings = result.findings;
       if (findings) {
         response += `Findings breakdown: ${findings.critical?.length || 0} critical, ${findings.high?.length || 0} high, ${findings.medium?.length || 0} medium. `;
@@ -503,7 +504,7 @@ export async function POST(request: NextRequest) {
           startedAt: new Date().toISOString(),
         });
 
-        console.log(`PubGuard conversation started: ${payload.conversation_id} (userType: ${userType})`);
+        console.log(`PubGuard conversation started: ${payload.conversation_id} (userType: ${userType}, userId: ${payload.custom_data?.userId || 'anonymous'})`);
 
         // Return the user-type-specific greeting
         const config = USER_TYPE_VOICE_CONFIG[userType];
@@ -518,19 +519,22 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Missing tool_call data' }, { status: 400 });
         }
 
-        // Get userType from conversation state
+        // Get userType and userId from conversation state
         const state = conversationState.get(payload.conversation_id);
         if (state) {
           userType = state.userType;
         }
 
         try {
+          // FIXED: Now passes userId and sessionId from conversation state
           const result = await executeScan(
             payload.tool_call.tool_name,
             payload.tool_call.parameters,
             payload.conversation_id,
             payload.agent_id,
-            userType
+            userType,
+            state?.userId,
+            state?.sessionId
           );
 
           const voiceResponse = formatForVoice(payload.tool_call.tool_name, result, userType);
@@ -565,7 +569,7 @@ export async function POST(request: NextRequest) {
         // Clean up conversation state
         const endedState = conversationState.get(payload.conversation_id);
         if (endedState) {
-          console.log(`Session had ${endedState.scanResults.length} scans, userType: ${endedState.userType}`);
+          console.log(`Session had ${endedState.scanResults.length} scans, userType: ${endedState.userType}, userId: ${endedState.userId || 'anonymous'}`);
         }
         conversationState.delete(payload.conversation_id);
 

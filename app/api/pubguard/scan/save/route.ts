@@ -1,58 +1,40 @@
 // app/api/pubguard/scan/save/route.ts
 // Save scan results to Supabase database
+// FIXED: Now accepts and stores user_id, session_id, user_type
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import type { ScanResult, RiskLevel } from '../../types';
+import { saveScanToSupabase } from '@/lib/pubguard/supabase';
 
-// Initialize Supabase client
+// Also keep direct Supabase client for the GET/DELETE endpoints
+import { createClient } from '@supabase/supabase-js';
+
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  
+
   if (!supabaseUrl || !supabaseKey) {
     throw new Error('Supabase credentials not configured');
   }
-  
+
   return createClient(supabaseUrl, supabaseKey);
-}
-
-// Generate a unique scan ID
-function generateScanId(): string {
-  return `scan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-// Determine overall risk level from scan result
-function determineRiskLevel(type: ScanResult['type'], result: any): RiskLevel {
-  switch (type) {
-    case 'github':
-      return result.analysis?.riskLevel || 'medium';
-    case 'cve':
-      // Base on highest severity CVE found
-      const cves = result.vulnerabilities || [];
-      if (cves.some((c: any) => c.severity === 'CRITICAL')) return 'critical';
-      if (cves.some((c: any) => c.severity === 'HIGH')) return 'high';
-      if (cves.some((c: any) => c.severity === 'MEDIUM')) return 'medium';
-      return 'low';
-    case 'news':
-      // News doesn't have inherent risk level
-      return 'medium';
-    case 'exposure':
-      return result.exposure?.riskLevel || 'medium';
-    default:
-      return 'medium';
-  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      type,           // 'github' | 'cve' | 'news' | 'exposure'
-      target,         // What was scanned
-      result,         // The scan result object
-      agentId,        // Optional: Kira agent ID
-      conversationId, // Optional: Conversation ID
+      type,
+      target,
+      result,
+      agentId,
+      conversationId,
+      // NEW fields - these were missing before
+      user_id,
+      userId,        // accept both naming conventions
+      session_id,
+      sessionId,
+      user_type,
+      userType,
     } = body;
 
     if (!type || !target || !result) {
@@ -70,71 +52,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = getSupabaseClient();
-    const scanId = generateScanId();
-    const riskLevel = determineRiskLevel(type, result);
+    // Use the shared saveScanToSupabase function which handles all fields
+    const resolvedUserId = user_id || userId || null;
+    const resolvedSessionId = session_id || sessionId || null;
+    const resolvedUserType = user_type || userType || 'user';
 
-    const scanRecord: ScanResult = {
-      id: scanId,
-      type,
-      target,
-      result,
-      riskLevel,
-      createdAt: new Date().toISOString(),
-      agentId,
-      conversationId,
+    // Build a report-like object that saveScanToSupabase expects
+    const report = {
+      trafficLight: result.riskLevel || result.trafficLight || 'amber',
+      overallRiskScore: result.overallRiskScore || result.risk_score || null,
+      target: { url: target, name: result.targetName || target },
+      targetName: result.targetName || target,
+      findings: result.findings || null,
+      github: result.github || null,
+      cve: result.cve || null,
+      news: result.news || null,
+      securityTests: result.securityTests || null,
+      sourcesChecked: result.sourcesChecked || null,
+      reportHash: result.reportHash || null,
+      // Pass through the full result as well
+      ...result,
     };
 
-    // Insert into pubguard_scans table
-    const { data, error } = await supabase
-      .from('pubguard_scans')
-      .insert({
-        id: scanId,
-        type,
-        target,
-        result: JSON.stringify(result),
-        risk_level: riskLevel,
-        agent_id: agentId || null,
-        conversation_id: conversationId || null,
-        created_at: scanRecord.createdAt,
-      })
-      .select()
-      .single();
+    const saved = await saveScanToSupabase(
+      report,
+      result.scanDurationMs || 0,
+      resolvedUserId,
+      resolvedSessionId,
+      resolvedUserType,
+      agentId,
+      conversationId
+    );
 
-    if (error) {
-      console.error('Supabase insert error:', error);
-      
-      // If table doesn't exist, return helpful error
-      if (error.code === '42P01') {
-        return NextResponse.json({
-          error: 'Database table not found. Please run the migration.',
-          migration: `
--- Run this SQL in Supabase:
-CREATE TABLE IF NOT EXISTS pubguard_scans (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL CHECK (type IN ('github', 'cve', 'news', 'exposure')),
-  target TEXT NOT NULL,
-  result JSONB NOT NULL,
-  risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),
-  agent_id TEXT REFERENCES kira_agents(id),
-  conversation_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_pubguard_scans_type ON pubguard_scans(type);
-CREATE INDEX idx_pubguard_scans_risk ON pubguard_scans(risk_level);
-CREATE INDEX idx_pubguard_scans_agent ON pubguard_scans(agent_id);
-CREATE INDEX idx_pubguard_scans_created ON pubguard_scans(created_at DESC);
-          `,
-        }, { status: 500 });
-      }
-      
-      throw error;
+    if (!saved) {
+      return NextResponse.json(
+        { error: 'Failed to save scan result' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      scan: scanRecord,
+      scan: {
+        id: saved.id,
+        type,
+        target,
+        riskLevel: report.trafficLight,
+        userId: resolvedUserId,
+        userType: resolvedUserType,
+        createdAt: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('Save scan error:', error);
@@ -153,6 +120,8 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type');
     const agentId = searchParams.get('agentId');
     const riskLevel = searchParams.get('riskLevel');
+    const userId = searchParams.get('userId');
+    const userType = searchParams.get('userType');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
 
@@ -165,43 +134,34 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + limit - 1);
 
     // Apply filters
-    if (id) {
-      query = query.eq('id', id);
-    }
-    if (type) {
-      query = query.eq('type', type);
-    }
-    if (agentId) {
-      query = query.eq('agent_id', agentId);
-    }
-    if (riskLevel) {
-      query = query.eq('risk_level', riskLevel);
-    }
+    if (id) query = query.eq('id', id);
+    if (type) query = query.eq('type', type);
+    if (agentId) query = query.eq('agent_id', agentId);
+    if (riskLevel) query = query.eq('risk_level', riskLevel);
+    if (userId) query = query.eq('user_id', userId);
+    if (userType) query = query.eq('user_type', userType);
 
     const { data, error, count } = await query;
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
-    // Parse JSON results
     const scans = (data || []).map(row => ({
       id: row.id,
       type: row.type,
       target: row.target,
+      targetName: row.target_name,
       result: typeof row.result === 'string' ? JSON.parse(row.result) : row.result,
       riskLevel: row.risk_level,
+      riskScore: row.risk_score,
+      userId: row.user_id,
+      userType: row.user_type,
+      sessionId: row.session_id,
       createdAt: row.created_at,
       agentId: row.agent_id,
       conversationId: row.conversation_id,
     }));
 
-    return NextResponse.json({
-      scans,
-      total: count,
-      limit,
-      offset,
-    });
+    return NextResponse.json({ scans, total: count, limit, offset });
   } catch (error) {
     console.error('Get scans error:', error);
     return NextResponse.json(
@@ -215,24 +175,13 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { id } = await request.json();
-
     if (!id) {
-      return NextResponse.json(
-        { error: 'Scan ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Scan ID is required' }, { status: 400 });
     }
 
     const supabase = getSupabaseClient();
-
-    const { error } = await supabase
-      .from('pubguard_scans')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      throw error;
-    }
+    const { error } = await supabase.from('pubguard_scans').delete().eq('id', id);
+    if (error) throw error;
 
     return NextResponse.json({ success: true });
   } catch (error) {

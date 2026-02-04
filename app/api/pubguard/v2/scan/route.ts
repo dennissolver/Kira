@@ -1,6 +1,7 @@
 // app/api/pubguard/v2/scan/route.ts
 // PubGuard v2 - Comprehensive Security Scanner API
 // ALL TESTS ARE REAL - No Simulations
+// FIXED: Now saves scan results to Supabase with user_id
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
@@ -29,6 +30,7 @@ import {
   generateWriterGuidance,
   categorizeFindings,
 } from '../scoring';
+import { saveScanToSupabase } from '@/lib/pubguard/supabase';
 
 // Environment variables
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -78,8 +80,23 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    const body: ScanRequest = await request.json();
-    const { url, includeSocialSignals = true } = body;
+    const body: ScanRequest & {
+      userType?: string;
+      userId?: string;
+      sessionId?: string;
+      agentId?: string;
+      conversationId?: string;
+    } = await request.json();
+
+    const {
+      url,
+      includeSocialSignals = true,
+      userType,
+      userId,
+      sessionId,
+      agentId,
+      conversationId,
+    } = body;
 
     if (!url) {
       return NextResponse.json(
@@ -279,7 +296,7 @@ export async function POST(request: NextRequest) {
       securityTestRisk.score = securityTestResults.overallRisk;
       securityTestRisk.weightedScore = securityTestRisk.score * (securityTestRisk.weight / 100);
       securityTestRisk.factors = securityTestResults.results
-        .map(t => `${t.testName}: ${t.passed ? '✓' : '✗'}`);
+        .map(t => `${t.testName}: ${t.passed ? '\u2714' : '\u2718'}`);
     }
 
     const riskCategories = [
@@ -308,7 +325,7 @@ export async function POST(request: NextRequest) {
 
     const report: PubGuardReport = {
       id: `pubguard_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      version: '2.0', // Type requires '2.0'
+      version: '2.0',
       generatedAt,
 
       target: {
@@ -332,7 +349,7 @@ export async function POST(request: NextRequest) {
       cve: cveAnalysis,
       news: newsAnalysis,
       social: socialAnalysis,
-      codebase: null, // TODO: Implement codebase analysis
+      codebase: null,
       securityTests: securityTestResults,
 
       writerGuidance,
@@ -343,13 +360,36 @@ export async function POST(request: NextRequest) {
         `Security conditions may change. Always verify current status before making recommendations. ` +
         `This report is for informational purposes only and does not constitute legal advice.`,
 
-      reportHash: '', // Will be set below
+      reportHash: '',
     };
 
     report.reportHash = generateReportHash(report);
 
     const duration = Date.now() - startTime;
     console.log(`[PubGuard] Scan complete in ${duration}ms - ${trafficLight.toUpperCase()} (${overallRiskScore}/100)`);
+
+    // ==========================================================================
+    // PHASE 4: Save to Supabase
+    // ==========================================================================
+
+    try {
+      const saved = await saveScanToSupabase(
+        report,
+        duration,
+        userId || undefined,
+        sessionId || undefined,
+        (userType as 'writer' | 'developer' | 'user' | 'analyst') || 'user',
+        agentId || undefined,
+        conversationId || undefined
+      );
+      if (saved) {
+        console.log(`[PubGuard] Saved to Supabase: ${saved.id}`);
+        (report as any).dbScanId = saved.id;
+      }
+    } catch (saveErr) {
+      // Don't fail the scan response if the DB save fails
+      console.error('[PubGuard] Failed to save to Supabase:', saveErr);
+    }
 
     return NextResponse.json(report);
 
